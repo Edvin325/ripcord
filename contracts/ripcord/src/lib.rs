@@ -105,11 +105,24 @@ impl Ripcord {
     /// Opens a vault. `owner_pubkey` is the borrower's own Bitcoin key, 33 bytes in hex:
     /// the key that can recover the coins alone after `escape_height`.
     ///
+    /// `expected_sats` is the smallest deposit this vault accepts. Proofs are open to
+    /// anyone, so without it a stranger could prove a tiny deposit first and strand the
+    /// real one until the escape height. With it, griefing means gifting that much.
+    ///
     /// The address is ready in the callback, because the vault's key is derived by the
     /// MPC contract. Attach `VAULT_STORAGE` plus the vault fee. The fee is sent to the
     /// endowment, which stakes it with NEAR validators.
     #[payable]
-    pub fn open_vault(&mut self, owner_pubkey: String, escape_height: u32) -> Promise {
+    pub fn open_vault(
+        &mut self,
+        owner_pubkey: String,
+        escape_height: u32,
+        expected_sats: U64,
+    ) -> Promise {
+        require!(
+            expected_sats.0 >= self.config.params.min_collateral_sats,
+            "deposit below the minimum"
+        );
         let owner_key: [u8; 33] = hex_array(&owner_pubkey, "owner_pubkey");
         // The signer key is unknown until the MPC answers. This checks the owner's half.
         let mut placeholder = [1u8; 33];
@@ -135,6 +148,7 @@ impl Ripcord {
                 owner: owner.clone(),
                 owner_pubkey: owner_key,
                 escape_height,
+                expected_sats: expected_sats.0,
                 signer_pubkey: None,
                 witness_script: Vec::new(),
                 script_pubkey: Vec::new(),
@@ -248,8 +262,8 @@ impl Ripcord {
             "output does not pay this vault"
         );
         require!(
-            output.value >= self.config.params.min_collateral_sats,
-            "deposit below the minimum"
+            output.value >= vault.expected_sats,
+            "deposit is below what this vault expects"
         );
 
         require!(

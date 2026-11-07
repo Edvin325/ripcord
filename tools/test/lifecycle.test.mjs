@@ -4,7 +4,8 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ACCOUNTS as A, NEAR, USDC, createWorld, p2wpkhOf } from '../sim/world.mjs';
+import { ACCOUNTS as A, INITIAL_RATE, NEAR, USDC, p2wpkhOf } from '../sim/world.mjs';
+import { nodeWorld as createWorld } from '../sim/node-world.mjs';
 import {
   buildSpend,
   bytesToHex,
@@ -47,13 +48,13 @@ function makeOffer(w, { amount = 1_000n * USDC, term = 20, apr = 900, price = PR
   return r.events.find((e) => e.event === 'offer_created').data[0].offer_id;
 }
 
-function openVault(w, { escape } = {}) {
+function openVault(w, { escape, expected = COLLATERAL } = {}) {
   const escape_height = escape ?? w.bitcoin.height + HEAD_START;
   const r = w.near.call(
     A.borrower,
     A.ripcord,
     'open_vault',
-    { owner_pubkey: ownerPubkey, escape_height },
+    { owner_pubkey: ownerPubkey, escape_height, expected_sats: String(expected) },
     { deposit: NEAR },
   );
   w.must(r, 'open vault');
@@ -248,10 +249,31 @@ test('a forged amount cannot get past the proof', () => {
   assert.equal(vaultOf(w, id).status, 'awaiting_deposit');
 });
 
-test('a dust deposit is refused', () => {
+test('a stranger cannot block a vault by proving a tiny deposit first', () => {
+  // Proofs are open to anyone. If a dust deposit could count, an attacker could spend a
+  // few sats to strand the owner's real deposit until the escape height.
   const w = createWorld();
-  const id = openVault(w);
-  const r = prove(w, id, deposit(w, id, 9_999));
+  const id = openVault(w, { expected: 1_000_000 });
+  const dust = deposit(w, id, 10_000);
+  const griefed = prove(w, id, dust, A.bidder);
+  assert.equal(griefed.ok, false);
+  assert.match(griefed.error, /below what this vault expects/);
+  assert.equal(vaultOf(w, id).status, 'awaiting_deposit', 'the vault is still open');
+
+  const real = deposit(w, id, 1_000_000);
+  w.must(prove(w, id, real), 'the real deposit still works');
+  assert.equal(vaultOf(w, id).deposit.sats, '1000000');
+});
+
+test('a vault cannot expect less than the protocol minimum', () => {
+  const w = createWorld();
+  const r = w.near.call(
+    A.borrower,
+    A.ripcord,
+    'open_vault',
+    { owner_pubkey: ownerPubkey, escape_height: 6_000_000, expected_sats: '9999' },
+    { deposit: NEAR },
+  );
   assert.equal(r.ok, false);
   assert.match(r.error, /below the minimum/);
 });
@@ -704,6 +726,107 @@ test('rewards can be unstaked but the principal stays staked', () => {
   assert.equal(w.pool.state.unstaked.get(A.endowment), NEAR, 'only the rewards moved');
 });
 
+/** Runs a loan to repayment so the endowment has interest to sell. */
+function earnInterest(w, loans = 3) {
+  for (let i = 0; i < loans; i++) {
+    const offer = makeOffer(w, { amount: 2_000n * USDC, apr: 90_000, term: 400 });
+    const id = openVault(w, { escape: w.bitcoin.height + 2_000, expected: 5_000_000 });
+    w.must(prove(w, id, deposit(w, id, 5_000_000)), 'prove');
+    w.must(borrow(w, id, offer, 2_000n * USDC), 'borrow');
+    w.must(repay(w, id, BigInt(vaultOf(w, id).loan.debt)), 'repay');
+  }
+  return inside(w, A.endowment);
+}
+
+test('interest becomes staked NEAR: a Dutch sale swaps USDC for NEAR with no price feed', () => {
+  const w = createWorld();
+  const earned = earnInterest(w);
+  assert.ok(earned > 0n, 'interest share reached the endowment');
+
+  w.must(w.near.call(A.keeper, A.endowment, 'collect_usdc'), 'collect');
+  assert.equal(inside(w, A.endowment), 0n);
+  assert.equal(usdcOf(w, A.endowment), earned);
+
+  w.must(w.near.call(A.keeper, A.endowment, 'start_sale'), 'start sale');
+  assert.equal(BigInt(w.near.view(A.endowment, 'current_rate')), INITIAL_RATE * 2n, 'opens at twice the last rate');
+
+  w.near.advance(1_800);
+  const rate = BigInt(w.near.view(A.endowment, 'current_rate'));
+  assert.ok(rate < INITIAL_RATE * 2n && rate > INITIAL_RATE / 2n, 'the rate is falling');
+
+  // Buy half at this rate. The contract refunds any NEAR it could not use.
+  const want = earned / 2n;
+  const nearBefore = w.near.balance(A.bidder);
+  const usdcBefore = usdcOf(w, A.bidder);
+  w.must(w.near.call(A.bidder, A.endowment, 'buy_usdc', {}, { deposit: want * rate + 12345n }), 'buy');
+  assert.equal(usdcOf(w, A.bidder), usdcBefore + want);
+  assert.equal(w.near.balance(A.bidder), nearBefore - want * rate, 'paid exactly the rate, dust refunded');
+
+  const stats = w.near.view(A.endowment, 'get_stats');
+  assert.equal(BigInt(stats.near_from_sales), want * rate);
+  assert.equal(BigInt(stats.usdc_sold), want);
+  assert.equal(BigInt(stats.sale.usdc_left), earned - want);
+
+  // That NEAR now goes to a validator.
+  w.must(w.near.call(A.keeper, A.endowment, 'stake'), 'stake');
+  assert.ok(BigInt(w.near.view(A.endowment, 'get_stats').principal_staked) > 0n);
+});
+
+test('a buyer who takes everything pays only for what is left and ends the sale', () => {
+  const w = createWorld();
+  const earned = earnInterest(w);
+  w.must(w.near.call(A.keeper, A.endowment, 'collect_usdc'), 'collect');
+  w.must(w.near.call(A.keeper, A.endowment, 'start_sale'), 'start sale');
+  const rate = BigInt(w.near.view(A.endowment, 'current_rate'));
+  const before = w.near.balance(A.bidder);
+  w.must(w.near.call(A.bidder, A.endowment, 'buy_usdc', {}, { deposit: 50n * NEAR }), 'buy all');
+  assert.equal(w.near.balance(A.bidder), before - earned * rate);
+  assert.equal(w.near.view(A.endowment, 'get_stats').sale, null);
+  assert.equal(usdcOf(w, A.endowment), 0n);
+  const again = w.near.call(A.bidder, A.endowment, 'buy_usdc', {}, { deposit: NEAR });
+  assert.equal(again.ok, false);
+  assert.match(again.error, /no sale is running/);
+});
+
+test('a sale that finds no buyer reopens lower, which is how it finds the market', () => {
+  const w = createWorld();
+  earnInterest(w);
+  w.must(w.near.call(A.keeper, A.endowment, 'collect_usdc'), 'collect');
+  w.must(w.near.call(A.keeper, A.endowment, 'start_sale'), 'start sale');
+
+  const running = w.near.call(A.keeper, A.endowment, 'start_sale');
+  assert.equal(running.ok, false);
+  assert.match(running.error, /still running/);
+
+  w.near.advance(3_600);
+  assert.equal(w.near.view(A.endowment, 'current_rate'), null);
+  const late = w.near.call(A.bidder, A.endowment, 'buy_usdc', {}, { deposit: NEAR });
+  assert.equal(late.ok, false);
+
+  w.must(w.near.call(A.keeper, A.endowment, 'start_sale'), 'reopen');
+  const reopened = BigInt(w.near.view(A.endowment, 'current_rate'));
+  assert.equal(reopened, INITIAL_RATE, 'opens at twice the old closing rate');
+});
+
+test('if a buyer cannot receive USDC the sale is undone and the NEAR returned', () => {
+  const w = createWorld();
+  const earned = earnInterest(w);
+  w.must(w.near.call(A.keeper, A.endowment, 'collect_usdc'), 'collect');
+  w.must(w.near.call(A.keeper, A.endowment, 'start_sale'), 'start sale');
+  const before = w.near.balance(A.keeper);
+  w.near.call(A.keeper, A.endowment, 'buy_usdc', {}, { deposit: NEAR / 100n }); // never registered
+  assert.equal(w.near.balance(A.keeper), before, 'made whole');
+  const stats = w.near.view(A.endowment, 'get_stats');
+  assert.equal(stats.near_from_sales, '0');
+  assert.equal(BigInt(stats.sale.usdc_left), earned, 'the USDC is back on sale');
+});
+
+test('selling needs USDC to sell', () => {
+  const w = createWorld();
+  w.near.call(A.keeper, A.endowment, 'start_sale');
+  assert.equal(w.near.view(A.endowment, 'get_stats').sale, null);
+});
+
 // ---- Safety of the whole state machine ----
 
 test('every vault action on an unknown vault is refused', () => {
@@ -723,19 +846,27 @@ test('every vault action on an unknown vault is refused', () => {
 
 test('opening a vault with a bad key, height or too little NEAR is refused', () => {
   const w = createWorld();
-  const open = (args, deposit = NEAR) => w.near.call(A.borrower, A.ripcord, 'open_vault', args, { deposit });
+  const open = (args, deposit = NEAR) =>
+    w.near.call(A.borrower, A.ripcord, 'open_vault', { expected_sats: '100000', ...args }, { deposit });
   assert.equal(open({ owner_pubkey: '04'.repeat(33), escape_height: 6_000_000 }).ok, false);
   assert.equal(open({ owner_pubkey: ownerPubkey, escape_height: 10 }).ok, false);
   assert.equal(open({ owner_pubkey: ownerPubkey, escape_height: 500_000_000 }).ok, false);
   assert.equal(open({ owner_pubkey: 'zz', escape_height: 6_000_000 }).ok, false);
   assert.equal(open({ owner_pubkey: ownerPubkey, escape_height: 6_000_000 }, 1n).ok, false);
+  assert.equal(open({ owner_pubkey: ownerPubkey, escape_height: 6_000_000 }).ok, true);
 });
 
 test('overpaying for a vault refunds everything above the fee and storage', () => {
   const w = createWorld();
   const before = w.near.balance(A.borrower);
   w.must(
-    w.near.call(A.borrower, A.ripcord, 'open_vault', { owner_pubkey: ownerPubkey, escape_height: 6_000_000 }, { deposit: 5n * NEAR }),
+    w.near.call(
+      A.borrower,
+      A.ripcord,
+      'open_vault',
+      { owner_pubkey: ownerPubkey, escape_height: 6_000_000, expected_sats: '100000' },
+      { deposit: 5n * NEAR },
+    ),
     'open',
   );
   const spent = before - w.near.balance(A.borrower);

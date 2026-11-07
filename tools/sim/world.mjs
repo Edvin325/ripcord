@@ -2,7 +2,6 @@
 // the vault's rules, an MPC signer holding a real secp256k1 key, the light client, and a
 // staking pool. The contracts themselves are the real compiled wasm.
 
-import { readFileSync } from 'node:fs';
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { sha256 } from '@noble/hashes/sha256';
 import { SimChain } from './vm.mjs';
@@ -359,6 +358,9 @@ export function mockPool() {
 export const NEAR = 10n ** 24n;
 export const USDC = 1_000_000n;
 
+/** yoctoNEAR per micro-USDC: 0.25 NEAR per dollar, for a NEAR price near four dollars. */
+export const INITIAL_RATE = (NEAR / 4n) / USDC;
+
 export const ACCOUNTS = {
   ripcord: 'ripcord.test',
   usdc: 'usdc.test',
@@ -383,11 +385,11 @@ export const DEFAULT_PARAMS = {
   max_btc_fee_bps: 500,
 };
 
-const wasm = (name) =>
-  readFileSync(new URL(`../../target/near/${name}/${name}.wasm`, import.meta.url));
-
-/** A fresh world with the three real contracts deployed and test money handed out. */
-export function createWorld({ params = {}, vaultFee = NEAR / 10n, keeperBounty = NEAR / 100n, keeperFloat = NEAR / 2n } = {}) {
+/**
+ * A fresh world with the three real contracts deployed and test money handed out.
+ * `wasm` maps contract names to their compiled bytes, so this runs in Node and browsers.
+ */
+export function createWorld({ wasm, params = {}, vaultFee = NEAR / 10n, keeperBounty = NEAR / 100n, keeperFloat = NEAR / 2n }) {
   const near = new SimChain();
   const bitcoin = new SimBitcoin();
   const mpc = mockMpc(new Uint8Array(32).fill(0x5a));
@@ -400,9 +402,9 @@ export function createWorld({ params = {}, vaultFee = NEAR / 10n, keeperBounty =
   near.mock(a.pool, pool.handlers);
   for (const id of [a.borrower, a.lender, a.bidder, a.keeper]) near.addAccount(id);
 
-  near.deploy(a.usdc, wasm('ripcord_test_usdc'));
-  near.deploy(a.ripcord, wasm('ripcord'));
-  near.deploy(a.endowment, wasm('ripcord_endowment'));
+  near.deploy(a.usdc, wasm.usdc);
+  near.deploy(a.ripcord, wasm.ripcord);
+  near.deploy(a.endowment, wasm.endowment);
 
   const must = (r, what) => {
     if (!r.ok) throw new Error(`${what}: ${r.error}`);
@@ -428,15 +430,19 @@ export function createWorld({ params = {}, vaultFee = NEAR / 10n, keeperBounty =
   must(
     near.call(a.endowment, a.endowment, 'new', {
       ripcord: a.ripcord,
+      usdc: a.usdc,
       pool: a.pool,
       keeper_bounty: keeperBounty.toString(),
       keeper_float: keeperFloat.toString(),
+      sale_seconds: '3600',
+      initial_rate: INITIAL_RATE.toString(),
     }),
     'endowment init',
   );
 
   const storageDeposit = NEAR / 100n;
   must(near.call(a.ripcord, a.usdc, 'storage_deposit', {}, { deposit: storageDeposit }), 'register ripcord');
+  must(near.call(a.endowment, a.usdc, 'storage_deposit', {}, { deposit: storageDeposit }), 'register endowment');
   for (const id of [a.borrower, a.lender, a.bidder]) {
     must(near.call(id, a.usdc, 'storage_deposit', {}, { deposit: storageDeposit }), `register ${id}`);
     must(near.call(id, a.usdc, 'faucet', { amount: (10_000n * USDC).toString() }), `fund ${id}`);

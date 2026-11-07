@@ -1,0 +1,25 @@
+{
+  "name": "ripcord-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "wasm": "node scripts/copy-wasm.mjs",
+    "dev": "npm run wasm && vite",
+    "build": "npm run wasm && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@fontsource/barlow-condensed": "5.3.0",
+    "@fontsource/ibm-plex-mono": "5.3.0",
+    "@fontsource/ibm-plex-sans": "5.3.0",
+    "@hot-labs/near-connect": "0.12.0",
+    "@noble/curves": "1.9.7",
+    "@noble/hashes": "1.8.0",
+    "preact": "11.2.0"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "2.10.6",
+    "vite": "8.3.6"
+  }
+}

@@ -14,7 +14,8 @@ import { sha256 } from '@noble/hashes/sha256';
 const U64_MAX = 0xffffffffffffffffn;
 const utf8 = new TextDecoder();
 const encode = (s) => new TextEncoder().encode(s);
-const keyOf = (bytes) => Buffer.from(bytes).toString('latin1');
+// Storage keys are short, so a one-byte-per-char string is a safe map key in Node and browsers.
+const keyOf = (bytes) => String.fromCharCode(...bytes);
 
 class Panic extends Error {}
 
@@ -89,9 +90,11 @@ export class SimChain {
   /** Read-only call. Runs against a copy of the state, which is thrown away. */
   view(contract, method, args = {}) {
     const account = this.accounts.get(contract);
-    if (account.mock) return decodeValue(this.runMock(account, method, encodeArgs(args), { predecessor: contract, deposit: 0n }).value);
-    const copy = new Map(account.storage);
-    const saved = account.storage;
+    if (account.mock) {
+      return decodeValue(this.runMock(account, method, encodeArgs(args), { predecessor: contract, deposit: 0n }).value);
+    }
+    const live = account.storage;
+    account.storage = new Map(live);
     try {
       const r = this.runWasm(account, method, encodeArgs(args), {
         predecessor: contract,
@@ -100,8 +103,7 @@ export class SimChain {
       });
       return decodeValue(r.value);
     } finally {
-      account.storage = saved;
-      void copy;
+      account.storage = live;
     }
   }
 
