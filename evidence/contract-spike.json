@@ -1,0 +1,76 @@
+{
+  "near_network": "testnet",
+  "btc_network": "testnet3",
+  "contract": "31fd31cdbda91eae3b91e70b0070d6e0eb84ad2c4bc4d6e2d4def50627cd7632",
+  "steps": [
+    {
+      "step": "opened a vault",
+      "at": "2026-11-07T14:22:31.801Z",
+      "near_tx": "9uDWoaeDsWcPaxxjcZ8Skc6B96C273FdcBS4gpVtfgNK",
+      "opened": true,
+      "side_failures": 1
+    },
+    {
+      "step": "the contract built the vault from a key the MPC network derived",
+      "at": "2026-11-07T14:22:32.331Z",
+      "vault": 1,
+      "address": "tb1q483hc7tuweaaluvragalt228grjayqtgu76hkaxfqql3hz9kversmht6rx",
+      "escape_height": 5303402,
+      "signer_key": "03dadbe83f7c505656e9910ba7e673824121eb118e5bf04a613d08ffb4f4ac0f13",
+      "mpc_says": "secp256k1:5Nnq9TNuD6kvfLgd8gYLrCsdMHAYmsJfRkjcrdiayEt9L2scfd5ysSDLUVvNkgccCV4kxKcpgAz5UzZ4ayVthSpY"
+    },
+    {
+      "step": "paid the vault on Bitcoin",
+      "at": "2026-11-07T14:22:32.719Z",
+      "sats": 9000,
+      "btc_tx": "09010b257a6dff47e410efdc437035c9c074da14b8d8a790c6306b6820c4461d",
+      "explorer": "https://mempool.space/testnet/tx/09010b257a6dff47e410efdc437035c9c074da14b8d8a790c6306b6820c4461d"
+    },
+    {
+      "step": "proved the deposit through the real light client",
+      "at": "2026-11-07T14:25:28.118Z",
+      "near_tx": "4caxbE5ECVB7Z1qWDf8mMK4ThW9BgFcTdkoJyDe7Ea3g",
+      "ok": true
+    },
+    {
+      "step": "the contract accepted the deposit",
+      "at": "2026-11-07T14:25:28.374Z",
+      "sats": "9000",
+      "txid": "09010b257a6dff47e410efdc437035c9c074da14b8d8a790c6306b6820c4461d"
+    },
+    {
+      "step": "released the vault",
+      "at": "2026-11-07T14:25:32.068Z",
+      "near_tx": "2bBQY87fqL5Dg5uJsNfeBZ7LMhcPyedBSwESCASELPyy",
+      "ok": true
+    },
+    {
+      "step": "asked the MPC network to sign",
+      "at": "2026-11-07T14:25:39.957Z",
+      "near_tx": "F9swCnY4Zpab4YSbWB2srm6uXmUnjaNLRrDzcKHBwSro",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "step": "the contract stored a transaction signed by the MPC network",
+      "at": "2026-11-07T14:25:40.218Z",
+      "seconds": 8,
+      "signed_txid": "30f9bbf37bc8dcfe9c08238252fb8c9c7ae19cc6c269ca303691e003e5f97d3c",
+      "raw_tx": "020000000001011d46c420686b30c690a7d8b814da74c0c9357043dcef10e447ff6d7a250b01090000000000fdffffff016c200000000000001600148e787960d8ad188e315b03cb3776ff6713205c1203483045022100de336692ed9f76350e50b66b4b03f0bafb85d68b9341bd6cb31658aac95d2fc60220771ba2210408df802448a6b04f958a78630478a300e30a81bf3b34ce79aadb2a0101014f632103dadbe83f7c505656e9910ba7e673824121eb118e5bf04a613d08ffb4f4ac0f13ac67036aec50b17521031609c255069dbeea0dcc3fc6757d09934b8305c7234c1140b8be17e704e12e18ac6800000000"
+    },
+    {
+      "step": "Bitcoin accepted the contract-signed spend",
+      "at": "2026-11-07T14:25:40.430Z",
+      "btc_tx": "30f9bbf37bc8dcfe9c08238252fb8c9c7ae19cc6c269ca303691e003e5f97d3c",
+      "explorer": "https://mempool.space/testnet/tx/30f9bbf37bc8dcfe9c08238252fb8c9c7ae19cc6c269ca303691e003e5f97d3c"
+    },
+    {
+      "step": "confirmed on Bitcoin, through lock 1",
+      "at": "2026-11-07T14:26:26.184Z",
+      "btc_tx": "30f9bbf37bc8dcfe9c08238252fb8c9c7ae19cc6c269ca303691e003e5f97d3c",
+      "block": 5302906,
+      "selector": "01",
+      "paid_sats": 8300
+    }
+  ]
+}

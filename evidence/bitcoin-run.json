@@ -1,0 +1,66 @@
+{
+  "network": "testnet3",
+  "light_client": "btc-client-v4.testnet",
+  "steps": [
+    {
+      "step": "start",
+      "at": "2026-11-07T14:19:10.293Z",
+      "wallet": "tb1q3eu8jcxc45vguv2mq09nwahlvufjqhqjg45edg"
+    },
+    {
+      "step": "built the vault",
+      "at": "2026-11-07T14:19:11.329Z",
+      "address": "tb1qlt8wj6pp30m5susyuxc07gsvmg84xn3msc3hgswcxl8v3p69869qn6ur3c",
+      "tip": 5302900,
+      "escape_height": 5302906,
+      "signer_key_from_mpc": "02d45ebb1c49ff6f64e1d2d05afa270e68577836d2bc2ff7e7ddc324198c18408c",
+      "owner_key": "038987bc5f0dfbfae69168a08c12ec57aa19f709152df21f599916ba6fa2de8081",
+      "witness_script": "632102d45ebb1c49ff6f64e1d2d05afa270e68577836d2bc2ff7e7ddc324198c18408cac67037aea50b17521038987bc5f0dfbfae69168a08c12ec57aa19f709152df21f599916ba6fa2de8081ac68"
+    },
+    {
+      "step": "paid the vault",
+      "at": "2026-11-07T14:19:11.520Z",
+      "sats": 15000,
+      "btc_tx": "3d612a0c73b83bda02003fc5e219a76ce5dd708a9f2794f384ea30699e869387",
+      "explorer": "https://mempool.space/testnet/tx/3d612a0c73b83bda02003fc5e219a76ce5dd708a9f2794f384ea30699e869387"
+    },
+    {
+      "step": "the live light client on NEAR checked the deposit",
+      "at": "2026-11-07T14:21:14.341Z",
+      "confirmed_at_block": 5302901,
+      "client_height": 5302902,
+      "real_proof": true,
+      "forged_txid": false
+    },
+    {
+      "step": "signed the escape ticket",
+      "at": "2026-11-07T14:21:14.441Z",
+      "txid": "20c415dc01e777500e1c85dd7dfc0b1fc037c08c2a8f65685b7c4f6b93323047",
+      "valid_after_block": 5302906,
+      "raw": "020000000001018793869e6930ea84f394279f8a70dde56ca719e2c53f0002da3bb8730c2a613d0000000000fdffffff0178370000000000001600148e787960d8ad188e315b03cb3776ff6713205c1203483045022100f12ae0086d77c170e63f72196831fcc8e8611424d5783072ca6158e050f1b95302206f70d3b68b4a53285aef426fad8848d84dfc1a8fd50d700e12e14cdd147b410a01004f632102d45ebb1c49ff6f64e1d2d05afa270e68577836d2bc2ff7e7ddc324198c18408cac67037aea50b17521038987bc5f0dfbfae69168a08c12ec57aa19f709152df21f599916ba6fa2de8081ac687aea5000"
+    },
+    {
+      "step": "tried the ticket early",
+      "at": "2026-11-07T14:21:14.578Z",
+      "tip": 5302902,
+      "escape_height": 5302906,
+      "refused": "400 from https://mempool.space/testnet/api/tx: sendrawtransaction RPC error: {\"code\":-26,\"message\":\"non-final\"}"
+    },
+    {
+      "step": "Bitcoin accepted the ticket",
+      "at": "2026-11-07T14:26:40.822Z",
+      "btc_tx": "20c415dc01e777500e1c85dd7dfc0b1fc037c08c2a8f65685b7c4f6b93323047",
+      "explorer": "https://mempool.space/testnet/tx/20c415dc01e777500e1c85dd7dfc0b1fc037c08c2a8f65685b7c4f6b93323047"
+    },
+    {
+      "step": "the coins are out, through the owner path alone",
+      "at": "2026-11-07T14:31:24.437Z",
+      "btc_tx": "20c415dc01e777500e1c85dd7dfc0b1fc037c08c2a8f65685b7c4f6b93323047",
+      "block": 5302908,
+      "witness_items": 3,
+      "selector_is_empty": true,
+      "paid_sats": 14200,
+      "locktime": 5302906
+    }
+  ]
+}
