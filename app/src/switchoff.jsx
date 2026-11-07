@@ -37,7 +37,7 @@ async function blackout(backend, log, setOff) {
   await say('A borrower opens a vault with a key only they hold.');
   const key = newOwnerKey();
   const snap = await backend.snapshot();
-  const escape = snap.tip + 70;
+  const escape = snap.tip + 90;
   const opened = await backend.openVault({
     ownerPubkey: bytesToHex(key.publicKey),
     escapeHeight: escape,

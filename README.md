@@ -17,7 +17,7 @@ OP_ELSE
 OP_ENDIF
 ```
 
-A NEAR contract proves the deposit through the Bitcoin light client on NEAR, lends USDC from a lender's fixed offer, and signs the coins back when the loan is repaid. If it is not repaid, a Dutch auction sells them, with no price feed. The lender is paid first and the surplus goes back to the borrower.
+A NEAR contract proves the deposit through the Bitcoin light client on NEAR, lends USDC from a lender's fixed offer, and signs the coins back when the loan is repaid. If it is not repaid, a Dutch auction sells them with no price feed, falling from an opening price the borrower named to the debt. The lender is paid first and the surplus goes back to the borrower.
 
 Lock 2 is the ripcord. Bitcoin enforces it, so it still works if this website, 1Click, the signers or NEAR itself stop.
 
@@ -37,7 +37,7 @@ npm install
 npm test
 ```
 
-You see `tests 60`, `pass 60`. This runs the real wasm in `target/near/` inside a small NEAR runtime, `tools/sim`. Its Bitcoin checks the vault's hash commitment, signatures, low-S rule and timelock, so a pass means a spend was accepted. If `target/near/` is missing, build it with step 6.
+You see `tests 82`, `pass 82`. This runs the compiled contracts from `contracts/wasm` inside a small NEAR runtime, `tools/sim`. Its Bitcoin checks the vault's hash commitment, signatures, low-S rule and timelock, so a pass means a spend was accepted. A fresh build in `target/near` takes priority if there is one.
 
 **2. Watch the whole story in a terminal.**
 
@@ -75,7 +75,7 @@ Open http://localhost:4173. The Simulator runs the real contracts in your browse
 cargo test -p near-btc-script -p ripcord-core
 ```
 
-You see 65 tests pass. They include the BIP-143 vectors, real mainnet transactions including Satoshi's payment to Hal Finney, and byte-for-byte agreement with bitcoinjs-lib on both spending paths.
+You see 76 tests pass. They include the BIP-143 vectors, real mainnet transactions including Satoshi's payment to Hal Finney, and byte-for-byte agreement with bitcoinjs-lib on both spending paths.
 
 **6. Build the contracts.**
 
@@ -86,6 +86,15 @@ cargo near build non-reproducible-wasm --no-abi
 ```
 
 Repeat in `contracts/endowment` and `contracts/test-usdc`. The output lands in `target/near/`.
+
+**7. Check that the tests can fail.**
+
+```bash
+cd tools
+node mutation-check.mjs
+```
+
+This undoes each security fix in turn, rebuilds the real contract and confirms the matching test goes red. You see `16 of 16 fixes are guarded`. The last run is in `evidence/mutation-check.json`.
 
 ## Proven on real networks
 
@@ -107,7 +116,7 @@ These ran on NEAR testnet and Bitcoin testnet3, with the real MPC signers and th
 | Part | State |
 | --- | --- |
 | Bitcoin library | Done. Tested against BIP vectors, real transactions and bitcoinjs-lib |
-| Contracts | Built. All 60 lifecycle tests pass on the compiled wasm |
+| Contracts | Built. All 82 tests pass on the compiled wasm, and an AI review's findings are fixed |
 | Vault, deposit proof, MPC signing, Bitcoin spend | **Done on real networks**, for both locks |
 | Web app | Works in the simulator. Checked in a real browser with `app/scripts/ui-check.mjs` |
 | NEAR Intents | Live `dry` quotes work. Intents has no testnet, so payouts on testnet stay on NEAR |
@@ -156,7 +165,8 @@ These use daily average prices, which hide intraday wicks, and past prices do no
 
 - **Signers.** The ripcord protects you if NEAR's signers go **offline**, not if a majority turns **malicious**. That is the same trust as every Chain Signatures product.
 - **Lenders can lose.** A lender can end up with Bitcoin worth less than the loan, and prices that into the offer.
-- **Unaudited.** Do not use real money you cannot lose.
+- **Borrowers can lose their surplus.** If nobody starts the auction in time, the lender takes the coins. If the opening price is set too low, a bot can buy them cheaply.
+- **Unaudited.** It has had an AI code review, not a professional audit. Do not use real money you cannot lose.
 
 ## Repository
 
@@ -170,6 +180,8 @@ These use daily average prices, which hide intraday wicks, and past prices do no
 | `tools/sim` | A NEAR runtime in JavaScript that runs the compiled contracts |
 | `tools/ripcord.mjs` | Every action from the command line |
 | `tools/keeper.mjs` | A permissionless keeper. Anyone can run one |
+| `tools/verify.mjs` | Checks a live deployment against this repository, with no key or wallet |
+| `tools/mutation-check.mjs` | Proves the tests can fail, by undoing each fix |
 | `tools/escape.mjs` | Signs the owner's exit offline, with no network |
 | `app` | The web app |
 | `research` | The lender backtest, with its data |

@@ -201,7 +201,8 @@ function BorrowPanel({ vault }) {
         </label>
         <p id="open-price-help" class="muted">
           It falls from here to your debt, and you keep whatever it sells for above the debt. Set it above anything a
-          bitcoin could be worth by then. Too low could sell your coins cheaply. Too high costs you nothing.
+          bitcoin could be worth by then. Too low could sell your coins cheaply. Far too high leaves bidders little
+          time near the real price.
         </p>
         <PayoutPicker micro={BigInt(Math.floor((dollarsWanted || 0) * MICRO))} />
         <button

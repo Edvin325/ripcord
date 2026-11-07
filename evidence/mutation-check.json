@@ -1,0 +1,122 @@
+{
+  "mutations": [
+    {
+      "fix": "the borrower names the auction opening price",
+      "caught": true,
+      "failed": [
+        "the borrower names where the auction opens, so a small loan keeps its surplus",
+        "an opening price far beyond any sensible number is refused"
+      ]
+    },
+    {
+      "fix": "a loan leaves a window to start its auction",
+      "caught": true,
+      "failed": [
+        "a loan at the exact limit still leaves time to start its auction"
+      ]
+    },
+    {
+      "fix": "a frozen light client is refused",
+      "caught": true,
+      "failed": [
+        "a frozen light client cannot open a loan or start an auction, and never stops a repayment"
+      ]
+    },
+    {
+      "fix": "abandoning a vault removes it before refunding",
+      "caught": true,
+      "failed": [
+        "a vault stuck waiting for its key can be abandoned for a full refund",
+        "a key arriving after the owner abandoned the vault cannot pay out twice"
+      ]
+    },
+    {
+      "fix": "a cancelled offer is deleted",
+      "caught": true,
+      "failed": [
+        "cancelling an offer returns unlent money and leaves live loans alone",
+        "closed offers and settled balances leave no record, so nothing grows for free"
+      ]
+    },
+    {
+      "fix": "an emptied offer is deleted",
+      "caught": true,
+      "failed": [
+        "an offer cannot lend more than it holds across several loans"
+      ]
+    },
+    {
+      "fix": "a settled balance is deleted",
+      "caught": true,
+      "failed": [
+        "closed offers and settled balances leave no record, so nothing grows for free"
+      ]
+    },
+    {
+      "fix": "only the lending contract can initialise itself",
+      "caught": true,
+      "failed": [
+        "only the contract itself can initialise, so nobody can race the deployment"
+      ]
+    },
+    {
+      "fix": "asking for a signature needs a full-access key",
+      "caught": true,
+      "failed": [
+        "asking for a signature needs a full-access key, because the fee spends real coins"
+      ]
+    },
+    {
+      "fix": "a buyer's NEAR is not staked while their USDC is in flight",
+      "caught": true,
+      "failed": [
+        "NEAR that may yet go back to a buyer is not staked while their USDC is on its way"
+      ]
+    },
+    {
+      "fix": "a second sale start cannot reset a running sale",
+      "caught": true,
+      "failed": [
+        "two sale starts at the same moment cannot reset a running sale"
+      ]
+    },
+    {
+      "fix": "harvests stay far enough apart",
+      "caught": true,
+      "failed": [
+        "a stranger cannot keep rewards locked by harvesting again and again"
+      ]
+    },
+    {
+      "fix": "USDC from a failed transfer goes back on sale",
+      "caught": true,
+      "failed": [
+        "if a buyer cannot receive USDC the sale is undone and the NEAR returned",
+        "if the very last of a sale fails to arrive, it goes back on sale too"
+      ]
+    },
+    {
+      "fix": "a sale needs at least a dollar",
+      "caught": true,
+      "failed": [
+        "a sale needs at least a dollar to sell"
+      ]
+    },
+    {
+      "fix": "only the endowment can initialise itself",
+      "caught": true,
+      "failed": [
+        "only the contract itself can initialise, so nobody can race the deployment"
+      ]
+    },
+    {
+      "fix": "only the test token can initialise itself",
+      "caught": true,
+      "failed": [
+        "only the contract itself can initialise, so nobody can race the deployment"
+      ]
+    }
+  ],
+  "restored_wasm_matches_commit": true,
+  "failing_after_restore": []
+}

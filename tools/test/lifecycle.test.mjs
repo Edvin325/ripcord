@@ -3,6 +3,7 @@
 // was accepted, not that a flag was set.
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { ACCOUNTS as A, NEAR, SALE_START_RATE, USDC, p2wpkhOf } from '../sim/world.mjs';
 import { nodeWorld as createWorld } from '../sim/node-world.mjs';
@@ -303,7 +304,7 @@ test('borrowing above the offered price per BTC is refused', () => {
 test('a loan whose default process would not fit before the escape block is refused', () => {
   const w = createWorld();
   const offer = makeOffer(w, { term: 20 });
-  // term 20 + grace 6 + window 6 + auction 12 + safety 12 needs 56 blocks. Deposit mines 3.
+  // term 20 + grace 6 + window 6 + auction 12 + safety 32 needs 76 blocks. Deposit mines 3.
   const id = fundedVault(w, { escape: w.bitcoin.height + 40 });
   const r = borrow(w, id, offer, 10n * USDC);
   assert.equal(r.ok, false);
@@ -313,12 +314,12 @@ test('a loan whose default process would not fit before the escape block is refu
 test('a loan at the exact limit still leaves time to start its auction', () => {
   const w = createWorld();
   const offer = makeOffer(w, { term: 20 });
-  // The tightest fit: deposit mines 3, then exactly the 56 blocks a default needs.
-  const tooTight = fundedVault(w, { escape: w.bitcoin.height + 3 + 55 });
+  // The tightest fit: deposit mines 3, then exactly the 76 blocks a default needs.
+  const tooTight = fundedVault(w, { escape: w.bitcoin.height + 3 + 75 });
   const refused = borrow(w, tooTight, offer, 10n * USDC);
   assert.ok(refused.failures.some((f) => /TimelineTooTight/.test(f)));
 
-  const id = fundedVault(w, { escape: w.bitcoin.height + 3 + 56 });
+  const id = fundedVault(w, { escape: w.bitcoin.height + 3 + 76 });
   w.must(borrow(w, id, offer, 10n * USDC), 'borrow');
   pastGrace(w, id);
   w.must(w.near.call(A.keeper, A.ripcord, 'start_auction', { vault_id: String(id) }), 'start');
@@ -393,6 +394,23 @@ test('a header stamped ahead of the clock is not mistaken for a stale one', () =
   w.client.state.staleSeconds = -6_500;
   w.must(borrow(w, id, offer, 10n * USDC), 'borrow');
 });
+
+// Captured from the live contracts, so the mock's shape cannot drift from the real thing.
+const REAL_HEADERS = JSON.parse(readFileSync(new URL('./fixtures/light-client-headers.json', import.meta.url), 'utf8'));
+
+for (const network of ['testnet', 'mainnet']) {
+  test(`the contract parses a real answer from the ${network} light client`, () => {
+    const w = createWorld();
+    const offer = makeOffer(w);
+    const id = fundedVault(w);
+    const real = structuredClone(REAL_HEADERS[network].response);
+    real.block_height = w.bitcoin.height;
+    real.block_header.time = Math.floor(w.near.timeMs / 1000);
+    w.near.accounts.get(A.client).mock.get_last_block_header = () => real;
+    w.must(borrow(w, id, offer, 10n * USDC), 'borrow');
+    assert.equal(vaultOf(w, id).loan.due_height, w.bitcoin.height + 20);
+  });
+}
 
 test('only the owner can borrow against a vault', () => {
   const w = createWorld();

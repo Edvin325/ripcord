@@ -103,8 +103,10 @@ export function summarize(outcome) {
     .map((r) => r.outcome.status?.Failure)
     .filter(Boolean)
     .map((f) => JSON.stringify(f));
+  const gasBurnt = all.reduce((sum, r) => sum + BigInt(r.outcome.gas_burnt ?? 0), 0n);
   return {
     hash: outcome.transaction?.hash ?? outcome.transaction_outcome?.id,
+    tgas: Number(gasBurnt / 10n ** 9n) / 1000,
     logs,
     events: logs
       .filter((l) => l.startsWith('EVENT_JSON:'))

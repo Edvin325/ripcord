@@ -24,6 +24,9 @@ pub const MAX_APR_BPS: u32 = 100_000;
 /// Half of Bitcoin's ten minutes, used to test that an auction fits in its blocks.
 const SECONDS_PER_FAST_BLOCK: u64 = 300;
 
+/// Bitcoin nodes accept a header stamped up to two hours ahead of their own clock.
+const MAX_HEADER_DRIFT_SECONDS: u64 = 7_200;
+
 /// About the smallest fee nodes will relay for a vault spend.
 const MIN_RELAY_FEE_SATS: u128 = 200;
 
@@ -75,9 +78,11 @@ impl Params {
             || self.safety_blocks == 0
             || self.auction_blocks == 0
             || self.max_tip_age_seconds == 0
-            // A frozen tip hides real blocks. The most it can hide must stay below the
-            // safety margin, or a borrower could open a loan and race the lender.
-            || self.max_tip_age_seconds >= (self.safety_blocks as u64) * SECONDS_PER_FAST_BLOCK
+            // A frozen tip hides real blocks, and its age is read from a time miners choose.
+            // The most it can hide, with their leeway, must stay below the safety margin,
+            // or a borrower could open a loan and race the lender.
+            || self.max_tip_age_seconds.saturating_add(MAX_HEADER_DRIFT_SECONDS)
+                >= (self.safety_blocks as u64) * SECONDS_PER_FAST_BLOCK
             // These settings can never change, so bad ones would be permanent. An auction
             // has to fit in its blocks even if Bitcoin runs at twice its usual speed.
             || (self.auction_blocks as u64) * SECONDS_PER_FAST_BLOCK < self.auction_seconds
@@ -210,8 +215,9 @@ pub fn latest_settlement_height(params: &Params, due_height: u32) -> Option<u32>
 ///
 /// `auction_open_per_btc` is the borrower's own opening price, in micro-USDC per BTC, if
 /// this loan ever defaults. The contract knows no market price, so the person with the
-/// most to lose names it. Too low costs them their surplus. Too high costs nobody: the
-/// floor stays at the debt, and the auction takes the same time.
+/// most to lose names it. Too low costs them their surplus. Far too high leaves bidders
+/// little time near the real price, which also falls on them: the lender's floor stays
+/// at the debt, and the auction takes the same time.
 #[allow(clippy::too_many_arguments)]
 pub fn open_loan(
     params: &Params,
@@ -598,9 +604,10 @@ mod tests {
                 max_tip_age_seconds: 0,
                 ..good
             },
-            // A frozen tip could hide more blocks than the safety margin holds.
+            // A frozen tip could hide more blocks than the safety margin holds, once a
+            // miner's two hours of leeway are counted. Exactly at the limit is too close.
             Params {
-                safety_blocks: 24,
+                safety_blocks: 48,
                 max_tip_age_seconds: 7_200,
                 ..good
             },
@@ -708,6 +715,16 @@ mod tests {
             20_000,
         );
         assert_eq!(r, Err(CoreError::BadAuctionOpen));
+    }
+
+    #[test]
+    fn the_safety_margin_must_outlast_a_frozen_tip() {
+        let p = Params {
+            safety_blocks: 49,
+            max_tip_age_seconds: 7_200,
+            ..params()
+        };
+        assert_eq!(p.validate(), Ok(()));
     }
 
     #[test]

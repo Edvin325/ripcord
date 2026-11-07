@@ -1,0 +1,42 @@
+{
+  "testnet": {
+    "account": "btc-client-v4.testnet",
+    "read_at": "2026-11-07T15:08:06.238Z",
+    "response": {
+      "block_header": {
+        "version": 537288704,
+        "prev_block_hash": "000000000026cc200186b655beb83845d22222b6cae80c78741aae9756d6a148",
+        "merkle_root": "12f3675f4b9ae4fbaee373656002a04457418979d8e0e39bad71f45f0c6f688c",
+        "time": 1794071100,
+        "bits": 486604799,
+        "nonce": 1355130359
+      },
+      "block_hash": "0000000000dedae435193e60c21b39da48e7fdb7016f125b1e4b8a03649db85d",
+      "chain_work": [
+        0,
+        4.132472930191089e+22
+      ],
+      "block_height": 5302932
+    }
+  },
+  "mainnet": {
+    "account": "btc-client.bridge.near",
+    "read_at": "2026-11-07T15:08:06.659Z",
+    "response": {
+      "block_header": {
+        "version": 586612736,
+        "prev_block_hash": "00000000000000000000560a36ded3cbb174d78fd619fb01370ae53a300639f4",
+        "merkle_root": "4e803192b9cefd55856f3498b944c08acd0fda86a4825fa00bc2c802ebb37582",
+        "time": 1794064008,
+        "bits": 386000300,
+        "nonce": 2454109992
+      },
+      "block_hash": "00000000000000000001a31402f78945c4d7f7597bddacc62d58fca306622617",
+      "chain_work": [
+        0,
+        6.209483399988824e+28
+      ],
+      "block_height": 974943
+    }
+  }
+}

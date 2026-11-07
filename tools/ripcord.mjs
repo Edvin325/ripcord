@@ -139,7 +139,8 @@ const commands = {
   /**
    * `openPerBtc` is where the auction opens if this loan defaults, in dollars per BTC. Set
    * it above anything a bitcoin might fetch at the due date: too low can sell your coins
-   * cheaply, and too high costs nothing. Zero uses the lowest the rules allow.
+   * cheaply, and far too high leaves bidders little time near the real price. Zero uses
+   * the lowest the rules allow.
    */
   async borrow(d, [id, offerId, dollars, openPerBtc, payoutTo]) {
     if (openPerBtc === undefined) throw new Error('usage: borrow <vault> <offer> <dollars> <auction opening price per BTC> [payout to]');

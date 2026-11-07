@@ -20,7 +20,7 @@ use near_sdk::{
     PromiseError,
 };
 
-const GAS_POOL: Gas = Gas::from_tgas(60);
+const GAS_POOL: Gas = Gas::from_tgas(100);
 const GAS_VIEW: Gas = Gas::from_tgas(10);
 const GAS_CALLBACK: Gas = Gas::from_tgas(15);
 const GAS_FT: Gas = Gas::from_tgas(15);

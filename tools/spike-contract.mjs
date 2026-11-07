@@ -92,7 +92,7 @@ if (!initialised) {
           start_window_blocks: 3,
           auction_seconds: 900,
           auction_blocks: 4,
-          safety_blocks: 12,
+          safety_blocks: 35,
           auction_start_bps: 30_000,
           flywheel_share_bps: 0,
           max_btc_fee_bps: 1_000,

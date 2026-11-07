@@ -407,7 +407,7 @@ export const DEFAULT_PARAMS = {
   start_window_blocks: 6,
   auction_seconds: 3_600,
   auction_blocks: 12,
-  safety_blocks: 12,
+  safety_blocks: 32,
   auction_start_bps: 30_000,
   flywheel_share_bps: 1_000,
   max_btc_fee_bps: 500,
@@ -418,7 +418,14 @@ export const DEFAULT_PARAMS = {
  * A fresh world with the three real contracts deployed and test money handed out.
  * `wasm` maps contract names to their compiled bytes, so this runs in Node and browsers.
  */
-export function createWorld({ wasm, params = {}, vaultFee = NEAR / 10n, keeperBounty = NEAR / 100n, keeperFloat = NEAR / 2n }) {
+export function createWorld({
+  wasm,
+  params = {},
+  vaultFee = NEAR / 10n,
+  keeperBounty = NEAR / 100n,
+  keeperFloat = NEAR / 2n,
+  sale = { sale_seconds: '3600', sale_start_rate: SALE_START_RATE.toString(), sale_halvings: SALE_HALVINGS },
+}) {
   const near = new SimChain();
   const bitcoin = new SimBitcoin();
   const mpc = mockMpc(new Uint8Array(32).fill(0x5a));
@@ -463,9 +470,7 @@ export function createWorld({ wasm, params = {}, vaultFee = NEAR / 10n, keeperBo
       pool: a.pool,
       keeper_bounty: keeperBounty.toString(),
       keeper_float: keeperFloat.toString(),
-      sale_seconds: '3600',
-      sale_start_rate: SALE_START_RATE.toString(),
-      sale_halvings: SALE_HALVINGS,
+      ...sale,
     }),
     'endowment init',
   );

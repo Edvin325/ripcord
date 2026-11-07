@@ -16,6 +16,7 @@ Things that took time to find:
 - The testnet client follows Bitcoin **testnet3**, not testnet4, even though the Chain Signatures docs use testnet4 in their examples. Testnet3 is no longer in Bitcoin Core and faucets are drying up. A testnet4 or signet client would help.
 - `H256` values are internal byte order in borsh and reversed in JSON.
 - `verify_transaction_inclusion_with_heights` exists on testnet but not on mainnet.
+- A relayer can stop, and the height then stands still with no warning. `get_last_block_header` also gives the newest header's time, so a contract can notice. Allow for a time in the future: the testnet header ran about 7,000 seconds ahead of the clock, because testnet3 miners stamp blocks ahead. The mainnet header was 78 to 121 seconds old.
 
 ## Chain Signatures is no longer one way
 

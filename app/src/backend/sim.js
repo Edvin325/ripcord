@@ -14,7 +14,7 @@ const PARAMS = {
   start_window_blocks: 3,
   auction_seconds: 3_600,
   auction_blocks: 12,
-  safety_blocks: 12,
+  safety_blocks: 32,
   auction_start_bps: 30_000,
   flywheel_share_bps: 1_000,
   max_btc_fee_bps: 500,

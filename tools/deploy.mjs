@@ -8,6 +8,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { accountFor, call, NEAR, view, viewAccount } from './lib/near.mjs';
+import { CONFIRMATIONS, KEEPER_BOUNTY, KEEPER_FLOAT, PARAMS, SALE, VAULT_FEE } from './lib/testnet-params.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const NETWORK = 'testnet';
@@ -25,24 +26,6 @@ const WASM = {
 };
 
 const code = (name) => readFileSync(join(here, '..', 'contracts', 'wasm', `${name}.wasm`));
-
-// Short loans on a chain whose blocks are irregular, so a full run fits in an hour or so.
-const PARAMS = {
-  min_collateral_sats: 5_000,
-  grace_blocks: 2,
-  start_window_blocks: 3,
-  auction_seconds: 900,
-  auction_blocks: 4,
-  safety_blocks: 12,
-  auction_start_bps: 30_000,
-  flywheel_share_bps: 1_000,
-  max_btc_fee_bps: 1_000,
-  max_tip_age_seconds: 3_000,
-};
-
-// 16 NEAR per dollar, halving twelve times, in half an hour so a test run can reach a
-// sensible rate. A long-lived deployment would run this over a day.
-const SALE = { sale_seconds: '1800', sale_start_rate: ((16n * NEAR) / 1_000_000n).toString(), sale_halvings: 12 };
 
 // Offers and balances are stored without anyone paying for them, so each contract keeps a
 // margin. Anyone can top up a locked contract with a plain transfer.
@@ -77,8 +60,8 @@ if (!(await initialised(endowment))) {
       ripcord,
       usdc,
       pool,
-      keeper_bounty: (NEAR / 100n).toString(),
-      keeper_float: (NEAR / 2n).toString(),
+      keeper_bounty: KEEPER_BOUNTY.toString(),
+      keeper_float: KEEPER_FLOAT.toString(),
       ...SALE,
     }),
   );
@@ -94,8 +77,8 @@ if (!(await initialised(ripcord))) {
         usdc,
         endowment,
         btc_hrp: 'tb',
-        confirmations: 2,
-        vault_fee: (NEAR / 10n).toString(),
+        confirmations: CONFIRMATIONS,
+        vault_fee: VAULT_FEE.toString(),
         params: PARAMS,
       },
     }),

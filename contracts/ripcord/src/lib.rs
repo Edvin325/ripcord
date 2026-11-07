@@ -368,9 +368,8 @@ impl Ripcord {
     /// `auction_open_per_btc` is the borrower's own bet on what a bitcoin could be worth,
     /// in micro-USDC. If the loan defaults, the auction opens there and falls to the debt.
     /// Nobody else can name it, because the contract has no price feed. Too low, and a
-    /// bot can take the coins for less than they are worth. There is no such risk in
-    /// aiming high: the price still falls all the way, so it only takes longer. Zero
-    /// opens at the lowest the rules allow.
+    /// bot can take the coins for less than they are worth. Far too high leaves bidders
+    /// little time near the real price. Zero opens at the lowest the rules allow.
     ///
     /// Needs one yoctoNEAR so a full-access key must sign. Otherwise a leaked app session
     /// key could open a loan and point `payout_to` at an attacker.
