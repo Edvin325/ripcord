@@ -5,9 +5,12 @@
   "type": "module",
   "description": "Command-line tools for Ripcord: proofs, the keeper, the escape ticket and the on-chain verifier.",
   "scripts": {
-    "fixtures": "node fixtures.mjs"
+    "fixtures": "node fixtures.mjs",
+    "test": "node --test test/"
   },
   "dependencies": {
+    "@noble/curves": "^1.9.7",
+    "@noble/hashes": "^1.8.0",
     "bitcoinjs-lib": "^6.1.10",
     "ecpair": "^2.1.0",
     "near-api-js": "^6.0.0",
