@@ -10,6 +10,8 @@ import { nodeWorld } from './sim/node-world.mjs';
 import { buildSpend, bytesToHex, hexToBytes, newOwnerKey, parseVaultScript, signOwnerPath } from './lib/btc-core.mjs';
 
 const SATS = 1_000_000;
+// The borrower's own opening price for the auction, if they ever default.
+const OPEN_PER_BTC = 120_000n * USDC;
 const usd = (micro) => `$${(Number(micro) / 1e6).toFixed(2)}`;
 const btc = (sats) => `${(Number(sats) / 1e8).toFixed(8)} BTC`;
 const say = (text = '') => console.log(text);
@@ -59,7 +61,7 @@ function openAndFund(key, blocks = 300) {
 }
 
 const borrow = (id, offer, dollars) =>
-  ok(near.call(A.borrower, A.ripcord, 'borrow', { vault_id: String(id), offer_id: offer, principal: (dollars * USDC).toString() }, { deposit: 1n }));
+  ok(near.call(A.borrower, A.ripcord, 'borrow', { vault_id: String(id), offer_id: offer, principal: (dollars * USDC).toString(), auction_open_per_btc: OPEN_PER_BTC.toString() }, { deposit: 1n }));
 
 title('1. A loan that is repaid');
 const offer = lend();
@@ -76,7 +78,7 @@ const debt = BigInt(vault(a).loan.debt);
 say(`The borrower takes $300.00 and owes ${usd(debt)}. The Bitcoin has not moved.`);
 ok(token(A.borrower, debt, { repay: { vault_id: String(a) } }));
 ok(near.call(A.borrower, A.ripcord, 'release', { vault_id: String(a), destination: bytesToHex(p2wpkhOf(0xb0)) }, { deposit: 1n }));
-ok(near.call(A.borrower, A.ripcord, 'request_signature', { vault_id: String(a), fee_sats: '500' }));
+ok(near.call(A.borrower, A.ripcord, 'request_signature', { vault_id: String(a), fee_sats: '500' }, { deposit: 1n }));
 const signed = vault(a);
 bitcoin.submit(signed.signed_tx);
 bitcoin.mine(1);
@@ -92,14 +94,14 @@ const early = near.call(A.keeper, A.ripcord, 'start_auction', { vault_id: String
 say(`On the last block of grace, a keeper tries to start the auction: ${early.failures.at(-1) ?? 'accepted'}`);
 bitcoin.mine(1);
 ok(near.call(A.keeper, A.ripcord, 'start_auction', { vault_id: String(b) }));
-say(`One block later it starts. The price opens at ${usd(near.view(A.ripcord, 'auction_price', { vault_id: String(b) }))}.`);
+say(`One block later it starts. The price opens at ${usd(near.view(A.ripcord, 'auction_price', { vault_id: String(b) }))}: this coin at the $120,000 per BTC the borrower named.`);
 near.advance(2_400);
 const price = BigInt(near.view(A.ripcord, 'auction_price', { vault_id: String(b) }));
 say(`Forty minutes later it is ${usd(price)}, and a bidder takes it.`);
 ok(token(A.bidder, price, { bid: { vault_id: String(b), btc_script: bytesToHex(p2wpkhOf(0xbd)) } }));
 say(`The lender is paid in full: ${usd(inside(A.lender))} in total so far.`);
 say(`The surplus goes back to the borrower: ${usd(BigInt(inside(A.borrower)) - 600n * USDC)}.`);
-ok(near.call(A.bidder, A.ripcord, 'request_signature', { vault_id: String(b), fee_sats: '500' }));
+ok(near.call(A.bidder, A.ripcord, 'request_signature', { vault_id: String(b), fee_sats: '500' }, { deposit: 1n }));
 bitcoin.submit(vault(b).signed_tx);
 bitcoin.mine(1);
 say(`The bidder has ${btc(bitcoin.balanceOf(p2wpkhOf(0xbd)))} on Bitcoin.`);

@@ -1,6 +1,6 @@
 use near_sdk::json_types::{U128, U64};
 use near_sdk::{near, AccountId, NearToken};
-use ripcord_core::{self as rules, LoanTerms, OfferTerms, Params};
+use ripcord_core::{LoanTerms, OfferTerms, Params};
 
 use crate::util::{hex, reverse_hex};
 
@@ -52,12 +52,14 @@ impl Config {
 pub struct StoredParams {
     pub min_collateral_sats: u64,
     pub grace_blocks: u32,
+    pub start_window_blocks: u32,
     pub auction_seconds: u64,
     pub auction_blocks: u32,
     pub safety_blocks: u32,
     pub auction_start_bps: u32,
     pub flywheel_share_bps: u32,
     pub max_btc_fee_bps: u32,
+    pub max_tip_age_seconds: u64,
 }
 
 impl StoredParams {
@@ -65,12 +67,14 @@ impl StoredParams {
         Params {
             min_collateral_sats: self.min_collateral_sats,
             grace_blocks: self.grace_blocks,
+            start_window_blocks: self.start_window_blocks,
             auction_seconds: self.auction_seconds,
             auction_blocks: self.auction_blocks,
             safety_blocks: self.safety_blocks,
             auction_start_bps: self.auction_start_bps,
             flywheel_share_bps: self.flywheel_share_bps,
             max_btc_fee_bps: self.max_btc_fee_bps,
+            max_tip_age_seconds: self.max_tip_age_seconds,
         }
     }
 }
@@ -123,6 +127,8 @@ pub struct Loan {
     pub principal: u128,
     pub interest: u128,
     pub due_height: u32,
+    /// Where the auction opens if this loan defaults.
+    pub auction_start: u128,
 }
 
 impl Loan {
@@ -131,6 +137,7 @@ impl Loan {
             principal: self.principal,
             interest: self.interest,
             due_height: self.due_height,
+            auction_start: self.auction_start,
         }
     }
 }
@@ -151,8 +158,11 @@ pub enum SettleReason {
 #[near(serializers = [borsh])]
 #[derive(Clone, PartialEq)]
 pub enum Status {
-    /// Waiting for the MPC contract to return this vault's key.
-    Deriving,
+    /// Waiting for the MPC contract to return this vault's key. `attached` is what the
+    /// owner paid, held until the key arrives so it can go back in full if it never does.
+    Deriving {
+        attached: u128,
+    },
     AwaitingDeposit,
     /// Deposit proven, with no loan against it.
     Funded,
@@ -199,7 +209,6 @@ pub struct Offer {
     pub apr_bps: u32,
     pub term_blocks: u32,
     pub btc_script: Vec<u8>,
-    pub active: bool,
 }
 
 impl Offer {
@@ -250,6 +259,19 @@ pub struct ProofArgsV2 {
     pub coinbase_tx_id: [u8; 32],
     pub coinbase_merkle_proof: Vec<[u8; 32]>,
     pub confirmations: u64,
+}
+
+/// The parts of the light client's `get_last_block_header` answer this contract reads.
+#[near(serializers = [json])]
+pub struct LightClientTip {
+    pub block_header: TipHeader,
+    pub block_height: u64,
+}
+
+#[near(serializers = [json])]
+pub struct TipHeader {
+    /// Seconds since 1970, as the miner stamped it.
+    pub time: u32,
 }
 
 /// The part of the MPC response this contract reads.
@@ -312,7 +334,6 @@ pub struct OfferView {
     pub apr_bps: u32,
     pub term_blocks: u32,
     pub btc_script: String,
-    pub active: bool,
 }
 
 impl From<&Offer> for OfferView {
@@ -325,7 +346,6 @@ impl From<&Offer> for OfferView {
             apr_bps: o.apr_bps,
             term_blocks: o.term_blocks,
             btc_script: hex(&o.btc_script),
-            active: o.active,
         }
     }
 }
@@ -340,6 +360,8 @@ pub struct LoanView {
     pub due_height: u32,
     /// Blocks after this the auction may start.
     pub grace_end_height: u32,
+    /// Where the auction opens if this loan defaults.
+    pub auction_start: U128,
 }
 
 #[near(serializers = [json])]
@@ -374,7 +396,7 @@ pub struct VaultView {
 impl VaultView {
     pub fn from(v: &Vault, address: Option<String>, params: Params) -> Self {
         let (status, started, destination, beneficiary, settle_reason) = match &v.status {
-            Status::Deriving => ("deriving", None, None, None, None),
+            Status::Deriving { .. } => ("deriving", None, None, None, None),
             Status::AwaitingDeposit => ("awaiting_deposit", None, None, None, None),
             Status::Funded => ("funded", None, None, None, None),
             Status::Borrowed => ("borrowed", None, None, None, None),
@@ -409,22 +431,15 @@ impl VaultView {
                 vout: d.vout,
                 sats: U64(d.sats),
             }),
-            loan: v.loan.as_ref().map(|l| {
-                let debt = rules::LoanTerms {
-                    principal: l.principal,
-                    interest: l.interest,
-                    due_height: l.due_height,
-                }
-                .debt();
-                LoanView {
-                    offer_id: U64(l.offer_id),
-                    lender: l.lender.clone(),
-                    principal: U128(l.principal),
-                    interest: U128(l.interest),
-                    debt: U128(debt),
-                    due_height: l.due_height,
-                    grace_end_height: l.due_height.saturating_add(params.grace_blocks),
-                }
+            loan: v.loan.as_ref().map(|l| LoanView {
+                offer_id: U64(l.offer_id),
+                lender: l.lender.clone(),
+                principal: U128(l.principal),
+                interest: U128(l.interest),
+                debt: U128(l.terms().debt()),
+                due_height: l.due_height,
+                grace_end_height: l.due_height.saturating_add(params.grace_blocks),
+                auction_start: U128(l.auction_start),
             }),
             auction_started_at_ms: started,
             destination,

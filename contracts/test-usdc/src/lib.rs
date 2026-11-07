@@ -25,6 +25,7 @@ pub struct TestUsdc {
 #[near]
 impl TestUsdc {
     #[init]
+    #[private]
     pub fn new() -> Self {
         Self {
             token: FungibleToken::new(b"t".to_vec()),

@@ -82,8 +82,10 @@ pub struct Ripcord {
 
 #[near]
 impl Ripcord {
-    /// Everything set here is permanent. There is no method to change any of it.
+    /// Everything set here is permanent. There is no method to change any of it. Private,
+    /// so nobody can get in between the deploy and this call with their own settings.
     #[init]
+    #[private]
     pub fn new(config: ConfigInput) -> Self {
         let config = Config::from_input(config);
         if let Err(e) = config.params.to_core().validate() {
@@ -140,12 +142,11 @@ impl Ripcord {
 
         let id = self.next_vault_id;
         self.next_vault_id += 1;
-        let owner = env::predecessor_account_id();
         self.vaults.insert(
             id,
             Vault {
                 id,
-                owner: owner.clone(),
+                owner: env::predecessor_account_id(),
                 owner_pubkey: owner_key,
                 escape_height,
                 expected_sats: expected_sats.0,
@@ -154,7 +155,9 @@ impl Ripcord {
                 script_pubkey: Vec::new(),
                 deposit: None,
                 loan: None,
-                status: Status::Deriving,
+                status: Status::Deriving {
+                    attached: attached.as_yoctonear(),
+                },
                 signed_tx: None,
                 signed_txid: None,
             },
@@ -176,7 +179,7 @@ impl Ripcord {
             .then(
                 Self::ext(env::current_account_id())
                     .with_static_gas(GAS_CALLBACK)
-                    .on_vault_key(id, owner, U128(attached.as_yoctonear())),
+                    .on_vault_key(id),
             )
     }
 
@@ -184,11 +187,15 @@ impl Ripcord {
     pub fn on_vault_key(
         &mut self,
         vault_id: u64,
-        owner: AccountId,
-        attached: U128,
         #[callback_result] key: Result<PublicKey, PromiseError>,
     ) -> Option<U64> {
-        let attached = NearToken::from_yoctonear(attached.0);
+        // Gone or moved on means the owner abandoned it and already has their money back.
+        let mut vault = self.vaults.get(&vault_id).cloned()?;
+        let Status::Deriving { attached } = vault.status else {
+            return None;
+        };
+        let attached = NearToken::from_yoctonear(attached);
+        let owner = vault.owner.clone();
         let key = match key {
             Ok(k) => k,
             Err(_) => {
@@ -200,7 +207,6 @@ impl Ripcord {
             }
         };
 
-        let mut vault = self.vault(vault_id);
         let signer = compress_secp256k1(&key);
         let spec = VaultSpec::new(signer, vault.owner_pubkey, vault.escape_height)
             .unwrap_or_else(|e| env::panic_str(&format!("bad vault: {e}")));
@@ -230,6 +236,25 @@ impl Ripcord {
             let _ = Promise::new(owner).transfer(refund);
         }
         Some(U64(vault_id))
+    }
+
+    /// Returns the money for a vault whose key never arrived. If the callback above ever
+    /// failed, nothing else could move the vault out of `Deriving`. The record is removed
+    /// first, so a late callback finds nothing and cannot refund a second time.
+    #[payable]
+    pub fn abandon_vault(&mut self, vault_id: U64) -> Promise {
+        near_sdk::assert_one_yocto();
+        let vault = self.vault(vault_id.0);
+        require!(
+            vault.owner == env::predecessor_account_id(),
+            "only the vault owner can abandon it"
+        );
+        let Status::Deriving { attached } = vault.status else {
+            env::panic_str("this vault already has its key");
+        };
+        self.vaults.remove(&vault_id.0);
+        emit("vault_abandoned", json!({ "vault_id": vault_id }));
+        Promise::new(vault.owner).transfer(NearToken::from_yoctonear(attached))
     }
 
     /// Proves a deposit with a Merkle proof against the Bitcoin light client. Anyone can
@@ -340,6 +365,13 @@ impl Ripcord {
     /// read first and the checks run in the callback. If `payout_to` is set the USDC is
     /// sent there at once: a 1Click deposit address delivers it to any chain.
     ///
+    /// `auction_open_per_btc` is the borrower's own bet on what a bitcoin could be worth,
+    /// in micro-USDC. If the loan defaults, the auction opens there and falls to the debt.
+    /// Nobody else can name it, because the contract has no price feed. Too low, and a
+    /// bot can take the coins for less than they are worth. There is no such risk in
+    /// aiming high: the price still falls all the way, so it only takes longer. Zero
+    /// opens at the lowest the rules allow.
+    ///
     /// Needs one yoctoNEAR so a full-access key must sign. Otherwise a leaked app session
     /// key could open a loan and point `payout_to` at an attacker.
     #[payable]
@@ -348,6 +380,7 @@ impl Ripcord {
         vault_id: U64,
         offer_id: U64,
         principal: U128,
+        auction_open_per_btc: U128,
         payout_to: Option<AccountId>,
     ) -> Promise {
         near_sdk::assert_one_yocto();
@@ -360,7 +393,7 @@ impl Ripcord {
         self.tip_then(
             Self::ext(env::current_account_id())
                 .with_static_gas(GAS_CALLBACK.saturating_add(GAS_FT_TRANSFER))
-                .on_tip_borrow(vault_id.0, offer_id.0, principal, payout_to),
+                .on_tip_borrow(vault_id.0, offer_id.0, principal, auction_open_per_btc, payout_to),
         )
     }
 
@@ -370,15 +403,15 @@ impl Ripcord {
         vault_id: u64,
         offer_id: u64,
         principal: U128,
+        auction_open_per_btc: U128,
         payout_to: Option<AccountId>,
-        #[callback_result] tip: Result<u64, PromiseError>,
+        #[callback_result] tip: Result<LightClientTip, PromiseError>,
     ) -> PromiseOrValue<()> {
-        let tip = tip_height(tip);
+        let tip = self.fresh_tip(tip);
         let mut vault = self.vault(vault_id);
         // Rechecked here: this is the step that actually commits.
         require!(vault.status == Status::Funded, "vault has no free collateral");
         let mut offer = self.offer(offer_id);
-        require!(offer.active, "offer is closed");
         let deposit = vault.deposit.clone().expect("funded vault has a deposit");
 
         let terms = rules::open_loan(
@@ -387,6 +420,7 @@ impl Ripcord {
             offer.available,
             deposit.sats,
             principal.0,
+            auction_open_per_btc.0,
             tip,
             vault.escape_height,
         )
@@ -400,10 +434,17 @@ impl Ripcord {
             principal: terms.principal,
             interest: terms.interest,
             due_height: terms.due_height,
+            auction_start: terms.auction_start,
         });
         vault.status = Status::Borrowed;
         let owner = vault.owner.clone();
-        self.offers.insert(offer_id, offer);
+        // An empty offer is deleted. Nothing pays rent for offers, so dead ones must go.
+        if offer.available == 0 {
+            self.offers.remove(&offer_id);
+            emit("offer_closed", json!({ "offer_id": U64(offer_id), "returned": U128(0) }));
+        } else {
+            self.offers.insert(offer_id, offer);
+        }
         self.vaults.insert(vault_id, vault);
         self.credit(&owner, principal.0);
         self.stats.loans_opened += 1;
@@ -416,6 +457,7 @@ impl Ripcord {
                 "principal": principal,
                 "interest": U128(terms.interest),
                 "due_height": terms.due_height,
+                "auction_start": U128(terms.auction_start),
             }),
         );
 
@@ -478,19 +520,17 @@ impl Ripcord {
     #[payable]
     pub fn cancel_offer(&mut self, offer_id: U64) {
         near_sdk::assert_one_yocto();
-        let mut offer = self.offer(offer_id.0);
+        let offer = self.offer(offer_id.0);
         require!(
             offer.lender == env::predecessor_account_id(),
             "only the lender can cancel"
         );
-        require!(offer.active, "offer is already closed");
-        offer.active = false;
-        let amount = offer.available;
-        offer.available = 0;
-        let lender = offer.lender.clone();
-        self.offers.insert(offer_id.0, offer);
-        self.credit(&lender, amount);
-        emit("offer_closed", json!({ "offer_id": offer_id, "returned": U128(amount) }));
+        self.offers.remove(&offer_id.0);
+        self.credit(&offer.lender, offer.available);
+        emit(
+            "offer_closed",
+            json!({ "offer_id": offer_id, "returned": U128(offer.available) }),
+        );
     }
 
     // ---- Default ----
@@ -512,9 +552,9 @@ impl Ripcord {
         &mut self,
         vault_id: u64,
         keeper: AccountId,
-        #[callback_result] tip: Result<u64, PromiseError>,
+        #[callback_result] tip: Result<LightClientTip, PromiseError>,
     ) {
-        let tip = tip_height(tip);
+        let tip = self.fresh_tip(tip);
         let mut vault = self.vault(vault_id);
         require!(vault.status == Status::Borrowed, "no active loan");
         let loan = vault.loan.clone().expect("borrowed vault has a loan");
@@ -530,7 +570,7 @@ impl Ripcord {
                     "auction_started",
                     json!({
                         "vault_id": vault_id,
-                        "start_price": U128(rules::auction_start_price(&params, loan.terms().debt())),
+                        "start_price": U128(loan.auction_start),
                         "floor_price": U128(loan.terms().debt()),
                     }),
                 );
@@ -567,7 +607,7 @@ impl Ripcord {
         let elapsed = seconds_since(started_at_ms);
         let params = self.config.params.to_core();
         require!(
-            rules::auction_price(&params, loan.terms().debt(), elapsed).is_none(),
+            rules::auction_price(&params, &loan.terms(), elapsed).is_none(),
             "the auction is still running"
         );
         vault.status = Status::Settling {
@@ -605,7 +645,12 @@ impl Ripcord {
     /// Asks the MPC network to sign the settling spend. Only the beneficiary chooses the
     /// fee, because it comes out of their coins. Calling again with a higher fee replaces
     /// the stored transaction, which is how a stuck spend gets unstuck.
+    ///
+    /// Needs one yoctoNEAR so a full-access key must sign, because the fee spends real
+    /// coins, and so the contract's own balance does not pay for the signature.
+    #[payable]
     pub fn request_signature(&mut self, vault_id: U64, fee_sats: U64) -> Promise {
+        near_sdk::assert_one_yocto();
         let vault = self.vault(vault_id.0);
         let Status::Settling { beneficiary, .. } = &vault.status else {
             env::panic_str("vault is not settling");
@@ -729,8 +774,8 @@ impl Ripcord {
         let Status::Auction { started_at_ms } = vault.status else {
             return None;
         };
-        let debt = vault.loan.as_ref()?.terms().debt();
-        rules::auction_price(&self.config.params.to_core(), debt, seconds_since(started_at_ms))
+        let terms = vault.loan.as_ref()?.terms();
+        rules::auction_price(&self.config.params.to_core(), &terms, seconds_since(started_at_ms))
             .map(U128)
     }
 
@@ -758,11 +803,11 @@ impl Ripcord {
         self.balances.insert(account.clone(), balance + amount);
     }
 
-    /// Reads the Bitcoin height from the light client, then runs `callback`.
+    /// Reads the newest Bitcoin header from the light client, then runs `callback`.
     fn tip_then(&self, callback: Promise) -> Promise {
         Promise::new(self.config.btc_client.clone())
             .function_call(
-                "get_last_block_height".to_string(),
+                "get_last_block_header".to_string(),
                 b"{}".to_vec(),
                 NearToken::from_yoctonear(0),
                 GAS_LIGHT_CLIENT,
@@ -770,10 +815,30 @@ impl Ripcord {
             .then(callback)
     }
 
+    /// The Bitcoin height, refusing a light client that has stopped following Bitcoin.
+    fn fresh_tip(&self, tip: Result<LightClientTip, PromiseError>) -> u32 {
+        let tip = tip.unwrap_or_else(|_| env::panic_str("could not read the Bitcoin height"));
+        require!(
+            rules::tip_is_fresh(
+                &self.config.params.to_core(),
+                tip.block_header.time,
+                env::block_timestamp_ms() / 1_000,
+            ),
+            "the light client is behind Bitcoin"
+        );
+        u32::try_from(tip.block_height)
+            .unwrap_or_else(|_| env::panic_str("Bitcoin height out of range"))
+    }
+
     fn pay_out(&mut self, account: AccountId, receiver: AccountId, amount: u128) -> Promise {
         let balance = self.balances.get(&account).copied().unwrap_or(0);
         require!(balance >= amount, "insufficient balance");
-        self.balances.insert(account.clone(), balance - amount);
+        // A settled balance is deleted, for the same reason as an empty offer.
+        if balance == amount {
+            self.balances.remove(&account);
+        } else {
+            self.balances.insert(account.clone(), balance - amount);
+        }
         Promise::new(self.config.usdc.clone())
             .function_call(
                 "ft_transfer".to_string(),
@@ -813,7 +878,6 @@ impl Ripcord {
                 apr_bps: terms.apr_bps,
                 term_blocks: terms.term_blocks,
                 btc_script,
-                active: true,
             },
         );
         emit(
@@ -861,7 +925,7 @@ impl Ripcord {
         let loan = vault.loan.clone().expect("auction has a loan");
         let terms = loan.terms();
         let params = self.config.params.to_core();
-        let price = rules::auction_price(&params, terms.debt(), seconds_since(started_at_ms))
+        let price = rules::auction_price(&params, &terms, seconds_since(started_at_ms))
             .unwrap_or_else(|| env::panic_str("the auction has ended"));
         require!(amount >= price, "bid is below the current price");
 
@@ -945,11 +1009,6 @@ fn checked_script(script_hex: &str) -> Vec<u8> {
         "not a standard Bitcoin output"
     );
     script
-}
-
-fn tip_height(tip: Result<u64, PromiseError>) -> u32 {
-    let tip = tip.unwrap_or_else(|_| env::panic_str("could not read the Bitcoin height"));
-    u32::try_from(tip).unwrap_or_else(|_| env::panic_str("Bitcoin height out of range"))
 }
 
 fn seconds_since(started_at_ms: u64) -> u64 {

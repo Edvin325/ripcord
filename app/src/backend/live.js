@@ -94,6 +94,16 @@ export class LiveBackend {
     return text ? JSON.parse(text) : null;
   }
 
+  /** Reads a paged list method to the end, so nothing past the first page is missed. */
+  async listAll(contract, method, pageSize = 100) {
+    const all = [];
+    for (;;) {
+      const page = await this.view(contract, method, { from_index: all.length, limit: pageSize });
+      all.push(...page);
+      if (page.length < pageSize) return all;
+    }
+  }
+
   async snapshot() {
     const d = this.d;
     const account = this.connected;
@@ -104,8 +114,8 @@ export class LiveBackend {
         this.view(d.ripcord, 'get_config'),
         this.view(d.ripcord, 'get_stats'),
         this.view(d.endowment, 'get_stats'),
-        this.view(d.ripcord, 'list_vaults'),
-        this.view(d.ripcord, 'list_offers'),
+        this.listAll(d.ripcord, 'list_vaults'),
+        this.listAll(d.ripcord, 'list_offers'),
         account ? this.view(d.usdc, 'ft_balance_of', { account_id: account }) : '0',
         account ? this.view(d.ripcord, 'get_balance', { account_id: account }) : '0',
         this.view(d.endowment, 'current_rate'),
@@ -241,11 +251,17 @@ export class LiveBackend {
     });
   }
 
-  borrow({ vaultId, offerId, principal, payoutTo }) {
+  borrow({ vaultId, offerId, principal, auctionOpenPerBtc, payoutTo }) {
     return this.send(
       this.d.ripcord,
       'borrow',
-      { vault_id: vaultId, offer_id: offerId, principal: principal.toString(), payout_to: payoutTo ?? null },
+      {
+        vault_id: vaultId,
+        offer_id: offerId,
+        principal: principal.toString(),
+        auction_open_per_btc: auctionOpenPerBtc.toString(),
+        payout_to: payoutTo ?? null,
+      },
       1n,
     );
   }
@@ -259,7 +275,7 @@ export class LiveBackend {
   }
 
   requestSignature(vaultId, feeSats) {
-    return this.send(this.d.ripcord, 'request_signature', { vault_id: vaultId, fee_sats: String(feeSats) });
+    return this.send(this.d.ripcord, 'request_signature', { vault_id: vaultId, fee_sats: String(feeSats) }, 1n);
   }
 
   startAuction(vaultId) {

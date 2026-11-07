@@ -11,12 +11,14 @@ const A = ACCOUNTS;
 const PARAMS = {
   min_collateral_sats: 10_000,
   grace_blocks: 3,
+  start_window_blocks: 3,
   auction_seconds: 3_600,
-  auction_blocks: 6,
-  safety_blocks: 6,
+  auction_blocks: 12,
+  safety_blocks: 12,
   auction_start_bps: 30_000,
   flywheel_share_bps: 1_000,
   max_btc_fee_bps: 500,
+  max_tip_age_seconds: 1_800,
 };
 
 /** Named test addresses, so the Bitcoin side reads like people rather than hashes. */
@@ -184,11 +186,17 @@ export class SimBackend {
     return this.send(A.ripcord, 'prove_deposit', { vault_id: vault.id, raw_tx, vout: coin.vout, proof });
   }
 
-  borrow({ vaultId, offerId, principal, payoutTo }) {
+  borrow({ vaultId, offerId, principal, auctionOpenPerBtc, payoutTo }) {
     return this.send(
       A.ripcord,
       'borrow',
-      { vault_id: vaultId, offer_id: offerId, principal: principal.toString(), payout_to: payoutTo ?? null },
+      {
+        vault_id: vaultId,
+        offer_id: offerId,
+        principal: principal.toString(),
+        auction_open_per_btc: auctionOpenPerBtc.toString(),
+        payout_to: payoutTo ?? null,
+      },
       1n,
     );
   }
@@ -202,7 +210,7 @@ export class SimBackend {
   }
 
   requestSignature(vaultId, feeSats) {
-    return this.send(A.ripcord, 'request_signature', { vault_id: vaultId, fee_sats: String(feeSats) });
+    return this.send(A.ripcord, 'request_signature', { vault_id: vaultId, fee_sats: String(feeSats) }, 1n);
   }
 
   startAuction(vaultId) {

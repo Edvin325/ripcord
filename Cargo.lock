@@ -926,6 +926,7 @@ name = "ripcord-endowment"
 version = "0.1.0"
 dependencies = [
  "near-sdk",
+ "ripcord-core",
 ]
 
 [[package]]

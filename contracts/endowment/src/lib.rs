@@ -16,7 +16,8 @@
 use near_sdk::json_types::{U128, U64};
 use near_sdk::serde_json::json;
 use near_sdk::{
-    env, log, near, require, AccountId, Gas, NearToken, PanicOnDefault, Promise, PromiseError,
+    env, log, near, require, AccountId, EpochHeight, Gas, NearToken, PanicOnDefault, Promise,
+    PromiseError,
 };
 
 const GAS_POOL: Gas = Gas::from_tgas(60);
@@ -30,16 +31,20 @@ const ONE_YOCTO: NearToken = NearToken::from_yoctonear(1);
 /// Left unstaked so the contract can always pay for its own storage.
 const STORAGE_RESERVE: NearToken = NearToken::from_millinear(500);
 
-/// A running sale of USDC for NEAR. Rates are yoctoNEAR per micro-USDC.
+/// A smaller sale would tie up the sale slot for its whole length to sell almost nothing.
+const MIN_SALE_MICRO_USDC: u128 = 1_000_000;
+
+/// A pool makes unstaked NEAR wait four epochs, and each `unstake` restarts that wait for
+/// everything already waiting. Harvests stay one epoch further apart than that wait.
+const HARVEST_EVERY_EPOCHS: EpochHeight = 5;
+
+/// A running sale of USDC for NEAR. It stays on record after selling out, so a transfer
+/// that fails afterwards can still put its USDC back.
 #[near(serializers = [borsh, json])]
 #[derive(Clone)]
 pub struct Sale {
     pub usdc_left: U128,
     pub started_at_ms: U64,
-    /// Opening rate, deliberately above any likely market rate.
-    pub start_rate: U128,
-    /// Closing rate, deliberately below it.
-    pub end_rate: U128,
 }
 
 #[near(contract_state)]
@@ -54,9 +59,14 @@ pub struct Endowment {
     /// NEAR kept liquid for bounties, so a keeper never waits on an unstake.
     keeper_float: NearToken,
     sale_seconds: u64,
-    /// The rate of the last fill. The next sale opens at twice this and closes at half.
-    last_rate: u128,
+    /// Every sale opens at this rate, in yoctoNEAR per micro-USDC. See
+    /// `ripcord_core::sale_rate` for why it never moves.
+    sale_start_rate: u128,
+    sale_halvings: u32,
     sale: Option<Sale>,
+    /// NEAR from purchases whose USDC is still on its way. If that transfer fails it goes
+    /// back to the buyer, so until then it must not be staked or paid out.
+    pending_refunds: u128,
     /// NEAR staked and never to be withdrawn: the growing, permanent part.
     principal_staked: u128,
     total_received: u128,
@@ -64,6 +74,7 @@ pub struct Endowment {
     keeper_payments: u64,
     near_from_sales: u128,
     usdc_sold: u128,
+    last_harvest_epoch: EpochHeight,
 }
 
 #[near(serializers = [json])]
@@ -79,14 +90,21 @@ pub struct EndowmentStats {
     pub keeper_payments: u64,
     pub near_from_sales: U128,
     pub usdc_sold: U128,
-    pub last_rate: U128,
+    pub sale_seconds: U64,
+    pub sale_start_rate: U128,
+    pub sale_halvings: u32,
     pub sale: Option<Sale>,
+    pub pending_refunds: U128,
+    pub last_harvest_epoch: U64,
     pub liquid_balance: U128,
 }
 
 #[near]
 impl Endowment {
+    /// Private, so nobody can get in between the deploy and this call with their own
+    /// settings.
     #[init]
+    #[private]
     pub fn new(
         ripcord: AccountId,
         usdc: AccountId,
@@ -94,10 +112,14 @@ impl Endowment {
         keeper_bounty: U128,
         keeper_float: U128,
         sale_seconds: U64,
-        initial_rate: U128,
+        sale_start_rate: U128,
+        sale_halvings: u32,
     ) -> Self {
-        require!(sale_seconds.0 > 0, "sale length must be positive");
-        require!(initial_rate.0 >= 4, "initial rate is too low to halve");
+        if let Err(e) =
+            ripcord_core::validate_sale(sale_start_rate.0, sale_halvings, sale_seconds.0)
+        {
+            env::panic_str(&format!("bad sale: {e}"));
+        }
         Self {
             ripcord,
             usdc,
@@ -105,14 +127,17 @@ impl Endowment {
             keeper_bounty: NearToken::from_yoctonear(keeper_bounty.0),
             keeper_float: NearToken::from_yoctonear(keeper_float.0),
             sale_seconds: sale_seconds.0,
-            last_rate: initial_rate.0,
+            sale_start_rate: sale_start_rate.0,
+            sale_halvings,
             sale: None,
+            pending_refunds: 0,
             principal_staked: 0,
             total_received: 0,
             total_paid_to_keepers: 0,
             keeper_payments: 0,
             near_from_sales: 0,
             usdc_sold: 0,
+            last_harvest_epoch: 0,
         }
     }
 
@@ -136,9 +161,7 @@ impl Endowment {
 
     /// Opens a sale of all USDC held here. Anyone can call it, once the last sale is over.
     pub fn start_sale(&mut self) -> Promise {
-        if let Some(sale) = &self.sale {
-            require!(self.sale_ended(sale), "a sale is still running");
-        }
+        self.require_sale_slot_free();
         Promise::new(self.usdc.clone())
             .function_call(
                 "ft_balance_of".to_string(),
@@ -158,32 +181,27 @@ impl Endowment {
     #[private]
     pub fn on_usdc_balance(&mut self, #[callback_result] balance: Result<U128, PromiseError>) {
         let balance = balance.unwrap_or_else(|_| env::panic_str("could not read the balance"));
-        require!(balance.0 > 0, "no USDC to sell");
-        // An expired sale found no buyer at any rate it offered, so the next one starts
-        // from its low end. This is how the auction finds the market without a feed.
-        if let Some(old) = &self.sale {
-            if self.sale_ended(old) {
-                self.last_rate = old.end_rate.0;
-            }
-        }
+        // Rechecked: two calls can be in flight at once, and the second must not reset
+        // the first sale back to its opening rate.
+        self.require_sale_slot_free();
+        require!(balance.0 >= MIN_SALE_MICRO_USDC, "not enough USDC to sell");
         self.sale = Some(Sale {
             usdc_left: balance,
             started_at_ms: U64(env::block_timestamp_ms()),
-            start_rate: U128(self.last_rate * 2),
-            end_rate: U128((self.last_rate / 2).max(1)),
         });
     }
 
     /// Buys USDC with the attached NEAR at the current rate, refunding what is unused.
     #[payable]
     pub fn buy_usdc(&mut self) -> Promise {
-        let sale = self
+        let mut sale = self
             .sale
             .clone()
             .unwrap_or_else(|| env::panic_str("no sale is running"));
         let rate = self
             .rate_of(&sale)
             .unwrap_or_else(|| env::panic_str("the sale has ended"));
+        require!(sale.usdc_left.0 > 0, "the sale has sold out");
 
         let attached = env::attached_deposit().as_yoctonear();
         let usdc_out = (attached / rate).min(sale.usdc_left.0);
@@ -191,12 +209,9 @@ impl Endowment {
         let cost = usdc_out * rate;
         let buyer = env::predecessor_account_id();
 
-        let left = sale.usdc_left.0 - usdc_out;
-        self.sale = (left > 0).then_some(Sale {
-            usdc_left: U128(left),
-            ..sale
-        });
-        self.last_rate = rate;
+        sale.usdc_left = U128(sale.usdc_left.0 - usdc_out);
+        self.sale = Some(sale);
+        self.pending_refunds += cost;
         self.near_from_sales += cost;
         self.usdc_sold += usdc_out;
 
@@ -223,6 +238,7 @@ impl Endowment {
     /// If the buyer could not take the USDC, the sale is undone and the NEAR goes back.
     #[private]
     pub fn on_usdc_sent(&mut self, buyer: AccountId, cost: U128, usdc: U128) {
+        self.pending_refunds -= cost.0;
         if near_sdk::is_promise_success() {
             log!(
                 "EVENT_JSON:{}",
@@ -295,9 +311,13 @@ impl Endowment {
         }
     }
 
-    /// Asks the pool to unstake rewards earned so far, keeping the principal staked.
-    /// They become withdrawable after the pool's unbonding period.
+    /// Asks the pool to unstake rewards earned so far, keeping the principal staked. They
+    /// become withdrawable after the pool's unbonding period.
+    ///
+    /// Open once every `HARVEST_EVERY_EPOCHS`. Otherwise a stranger could call this every
+    /// few hours, restart the pool's wait each time, and keep the rewards locked for good.
     pub fn harvest_rewards(&mut self) -> Promise {
+        self.require_harvest_open();
         Promise::new(self.pool.clone())
             .function_call(
                 "get_account_staked_balance".to_string(),
@@ -320,11 +340,14 @@ impl Endowment {
         #[callback_result] staked: Result<U128, PromiseError>,
     ) -> Option<Promise> {
         let staked = staked.unwrap_or_else(|_| env::panic_str("could not read the pool"));
+        // Rechecked: two calls can be in flight at once.
+        self.require_harvest_open();
         let rewards = staked.0.saturating_sub(self.principal_staked);
         if rewards == 0 {
             log!("no rewards yet");
             return None;
         }
+        self.last_harvest_epoch = env::epoch_height();
         Some(Promise::new(self.pool.clone()).function_call(
             "unstake".to_string(),
             json!({ "amount": U128(rewards) }).to_string().into_bytes(),
@@ -347,7 +370,11 @@ impl Endowment {
 
     /// The rate a buyer pays right now, in yoctoNEAR per micro-USDC.
     pub fn current_rate(&self) -> Option<U128> {
-        self.sale.as_ref().and_then(|s| self.rate_of(s)).map(U128)
+        self.sale
+            .as_ref()
+            .filter(|s| s.usdc_left.0 > 0)
+            .and_then(|s| self.rate_of(s))
+            .map(U128)
     }
 
     pub fn get_stats(&self) -> EndowmentStats {
@@ -363,36 +390,57 @@ impl Endowment {
             keeper_payments: self.keeper_payments,
             near_from_sales: U128(self.near_from_sales),
             usdc_sold: U128(self.usdc_sold),
-            last_rate: U128(self.last_rate),
+            sale_seconds: U64(self.sale_seconds),
+            sale_start_rate: U128(self.sale_start_rate),
+            sale_halvings: self.sale_halvings,
             sale: self.sale.clone(),
+            pending_refunds: U128(self.pending_refunds),
+            last_harvest_epoch: U64(self.last_harvest_epoch),
             liquid_balance: U128(env::account_balance().as_yoctonear()),
         }
     }
 
     // ---- Internals ----
 
-    fn elapsed_seconds(&self, sale: &Sale) -> u64 {
+    fn sale_elapsed_seconds(&self, sale: &Sale) -> u64 {
         env::block_timestamp_ms().saturating_sub(sale.started_at_ms.0) / 1_000
     }
 
-    fn sale_ended(&self, sale: &Sale) -> bool {
-        self.elapsed_seconds(sale) >= self.sale_seconds
-    }
-
-    /// Falls in a straight line from the opening rate to the closing rate.
     fn rate_of(&self, sale: &Sale) -> Option<u128> {
-        let elapsed = self.elapsed_seconds(sale);
-        if elapsed >= self.sale_seconds {
-            return None;
-        }
-        let drop = (sale.start_rate.0 - sale.end_rate.0) * elapsed as u128
-            / self.sale_seconds as u128;
-        Some(sale.start_rate.0 - drop)
+        ripcord_core::sale_rate(
+            self.sale_start_rate,
+            self.sale_halvings,
+            self.sale_seconds,
+            self.sale_elapsed_seconds(sale),
+        )
     }
 
-    /// Liquid NEAR, less what this contract's own storage locks up.
+    /// A new sale needs the last one over and no purchase mid-flight. A purchase in
+    /// flight still counts in this contract's token balance, so a sale opened then would
+    /// offer USDC that has already been sold.
+    fn require_sale_slot_free(&self) {
+        require!(self.pending_refunds == 0, "a purchase is still settling");
+        if let Some(sale) = &self.sale {
+            require!(
+                sale.usdc_left.0 == 0 || self.rate_of(sale).is_none(),
+                "a sale is still running"
+            );
+        }
+    }
+
+    fn require_harvest_open(&self) {
+        require!(
+            env::epoch_height() >= self.last_harvest_epoch + HARVEST_EVERY_EPOCHS,
+            "harvested too recently"
+        );
+    }
+
+    /// Liquid NEAR, less what this contract's own storage locks up and what may yet go
+    /// back to a buyer.
     fn spendable(&self) -> NearToken {
         let locked = env::storage_byte_cost().saturating_mul(env::storage_usage() as u128);
-        env::account_balance().saturating_sub(locked)
+        env::account_balance()
+            .saturating_sub(locked)
+            .saturating_sub(NearToken::from_yoctonear(self.pending_refunds))
     }
 }

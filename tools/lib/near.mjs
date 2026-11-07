@@ -46,6 +46,16 @@ export async function view(network, contractId, method, args = {}) {
   return text ? JSON.parse(text) : null;
 }
 
+/** Reads a paged list method to the end, so nothing past the first page is missed. */
+export async function listAll(network, contractId, method, pageSize = 100) {
+  const all = [];
+  for (;;) {
+    const page = await view(network, contractId, method, { from_index: all.length, limit: pageSize });
+    all.push(...page);
+    if (page.length < pageSize) return all;
+  }
+}
+
 /** A read-only call with raw arguments, for methods that take borsh. */
 export async function viewBytes(network, contractId, method, bytes) {
   const result = await rpc(network, 'query', {

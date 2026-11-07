@@ -37,7 +37,7 @@ async function blackout(backend, log, setOff) {
   await say('A borrower opens a vault with a key only they hold.');
   const key = newOwnerKey();
   const snap = await backend.snapshot();
-  const escape = snap.tip + 60;
+  const escape = snap.tip + 70;
   const opened = await backend.openVault({
     ownerPubkey: bytesToHex(key.publicKey),
     escapeHeight: escape,
@@ -54,7 +54,13 @@ async function blackout(backend, log, setOff) {
 
   const offer = (await backend.snapshot()).offers[0];
   const principal = 300n * 1_000_000n;
-  await backend.borrow({ vaultId: String(id), offerId: offer.id, principal, payoutTo: snap.account });
+  await backend.borrow({
+    vaultId: String(id),
+    offerId: offer.id,
+    principal,
+    auctionOpenPerBtc: 228_000n * 1_000_000n,
+    payoutTo: snap.account,
+  });
   await say(`$300 borrowed against it. Debt is fixed until block ${num(vaultOf().loan.due_height)}.`);
 
   const home = backend.btcAddressOfRole();

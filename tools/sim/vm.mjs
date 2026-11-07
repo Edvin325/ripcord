@@ -38,6 +38,7 @@ function bytesToU128(b) {
 export class SimChain {
   constructor({ startTimeMs = 1_800_000_000_000 } = {}) {
     this.timeMs = startTimeMs;
+    this.epoch = 1_000;
     this.accounts = new Map();
     this.receipts = new Map();
     this.nextReceipt = 1;
@@ -93,6 +94,25 @@ export class SimChain {
     });
     this.drain();
     return this.outcomeOf(id);
+  }
+
+  /**
+   * Sends several transactions at once, so their receipts interleave the way they can on
+   * the real chain. Each `[signer, contract, method, args, options]` runs its first
+   * receipt before the next one's first, and so on down each chain.
+   */
+  callTogether(calls) {
+    const ids = calls.map(([signer, contract, method, args = {}, { deposit = 0n } = {}]) => {
+      this.accounts.get(signer).balance -= deposit;
+      return this.enqueue({
+        predecessor: signer,
+        receiver: contract,
+        actions: [{ kind: 'call', method, args: encodeArgs(args), deposit }],
+        after: [],
+      });
+    });
+    this.drain();
+    return ids.map((id) => this.settled(id));
   }
 
   /** Read-only call. Runs against a copy of the state, which is thrown away. */
@@ -254,6 +274,7 @@ export class SimChain {
       predecessor_account_id: (r) => setRegister(r, encode(ctx.predecessor)),
       input: (r) => setRegister(r, args),
       block_timestamp: () => BigInt(self.timeMs) * 1_000_000n,
+      epoch_height: () => BigInt(self.epoch),
       account_balance: (ptr) => writeU128(ptr, account.balance),
       attached_deposit: (ptr) => writeU128(ptr, ctx.deposit),
       storage_usage() {

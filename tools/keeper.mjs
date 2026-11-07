@@ -8,13 +8,14 @@
 //   - starts auctions for loans past their grace period, which earns a NEAR bounty
 //   - sends the coins to the lender when an auction ends with no bids
 //   - broadcasts signed Bitcoin transactions that are not on chain yet
+//   - tends the endowment: collects its interest, opens a sale, stakes what it can
 //
 //   node keeper.mjs <account> [--once]
 
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { call, view } from './lib/near.mjs';
+import { call, listAll, NEAR, view } from './lib/near.mjs';
 import { buildProof, esplora } from './lib/esplora.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -49,9 +50,27 @@ async function tryBroadcast(v) {
   say(`vault ${v.id}: broadcast ${id}`);
 }
 
+/** The endowment's upkeep. These calls earn no bounty, and each one is open to anyone. */
+async function upkeep() {
+  const dollar = 1_000_000n; // the smallest sale the endowment will open
+  const [e, owed, held, rate] = await Promise.all([
+    view(d.network, d.endowment, 'get_stats'),
+    view(d.network, d.ripcord, 'get_balance', { account_id: d.endowment }),
+    view(d.network, d.usdc, 'ft_balance_of', { account_id: d.endowment }),
+    view(d.network, d.endowment, 'current_rate'),
+  ]);
+  const step = async (label, method) => {
+    const r = await call(d.network, keeper, d.endowment, method);
+    say(`endowment: ${label} ${r.ok ? 'ok' : 'refused'}`);
+  };
+  if (BigInt(owed) >= dollar) await step('collected interest', 'collect_usdc');
+  if (BigInt(held) >= dollar && rate === null) await step('opened a sale', 'start_sale');
+  if (BigInt(e.liquid_balance) > BigInt(e.keeper_float) + 5n * NEAR) await step('staked', 'stake');
+}
+
 async function round() {
   const [vaults, config, tip] = await Promise.all([
-    view(d.network, d.ripcord, 'list_vaults'),
+    listAll(d.network, d.ripcord, 'list_vaults'),
     view(d.network, d.ripcord, 'get_config'),
     view(d.network, d.btcClient, 'get_last_block_height'),
   ]);
@@ -75,6 +94,7 @@ async function round() {
       say(`vault ${v.id}: ${e.message.slice(0, 160)}`);
     }
   }
+  await upkeep().catch((e) => say(`endowment: ${e.message.slice(0, 160)}`));
 }
 
 await round();

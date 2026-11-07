@@ -17,7 +17,7 @@ import { recall, remember } from './keys.js';
 /** Bitcoin blocks as a strip: where you are, and what opens when. */
 function Tape({ vault, tip, params }) {
   const { loan, escape_height: escape } = vault;
-  const auctionEnd = loan ? loan.grace_end_height + params.auction_blocks : null;
+  const auctionEnd = loan ? loan.grace_end_height + params.start_window_blocks + params.auction_blocks : null;
   const start = Math.min(tip, loan ? loan.due_height : tip) - Math.max(6, Math.round((escape - tip) * 0.05));
   const end = Math.max(escape, tip) + Math.max(6, Math.round((escape - start) * 0.12));
   const at = (h) => `${Math.min(100, Math.max(0, ((h - start) / (end - start)) * 100))}%`;
@@ -162,6 +162,12 @@ function BorrowPanel({ vault }) {
   const limit = offer && max > BigInt(offer.available) ? BigInt(offer.available) : max;
   const [amount, setAmount] = useState('');
   const dollarsWanted = amount === '' ? Number(limit) / MICRO : Number(amount);
+  // The contract knows no price, so the borrower names this. Three times today's price
+  // leaves room for the coins to find their value if the loan ever defaults.
+  const reference = snap.btcPrice ?? (2 * Number(offer?.micro_usdc_per_btc ?? 0)) / MICRO;
+  const suggested = Math.round(reference * 3);
+  const [openPrice, setOpenPrice] = useState('');
+  const opening = openPrice === '' ? suggested : Number(openPrice);
 
   return (
     <Step n="4" title="Borrow">
@@ -184,6 +190,19 @@ function BorrowPanel({ vault }) {
             onInput={(e) => setAmount(e.currentTarget.value)}
           />
         </label>
+        <label>
+          If you default, the auction opens at this price per BTC
+          <input
+            inputMode="decimal"
+            value={openPrice === '' ? String(suggested) : openPrice}
+            onInput={(e) => setOpenPrice(e.currentTarget.value)}
+            aria-describedby="open-price-help"
+          />
+        </label>
+        <p id="open-price-help" class="muted">
+          It falls from here to your debt, and you keep whatever it sells for above the debt. Set it above anything a
+          bitcoin could be worth by then. Too low could sell your coins cheaply. Too high costs you nothing.
+        </p>
         <PayoutPicker micro={BigInt(Math.floor((dollarsWanted || 0) * MICRO))} />
         <button
           disabled={busy || !offer}
@@ -194,6 +213,7 @@ function BorrowPanel({ vault }) {
                   vaultId: vault.id,
                   offerId: offer.id,
                   principal: BigInt(Math.floor(dollarsWanted * MICRO)),
+                  auctionOpenPerBtc: BigInt(Math.round((opening || 0) * MICRO)),
                   payoutTo: snap.account,
                 }),
               'Dollars sent. The Bitcoin has not moved.',
@@ -437,7 +457,9 @@ export function VaultPage({ id }) {
           </h2>
           <p>
             No price can touch this loan. The only date that matters is block {num(vault.loan.grace_end_height)}, when
-            the grace period ends. Anyone can repay, from any account.
+            the grace period ends. Anyone can repay, from any account. If it goes unpaid, your Bitcoin goes to auction,
+            opening at {usd(vault.loan.auction_start)} and falling to your debt. You keep whatever it sells for above
+            the debt.
           </p>
           <RepayPicker micro={vault.loan.debt} />
           <button disabled={busy} onClick={() => act(() => backend.repay(vault), 'Repaid. Your Bitcoin is free again.')}>

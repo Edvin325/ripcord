@@ -136,9 +136,20 @@ const commands = {
     report(await call(d.network, caller ?? v.owner, d.ripcord, 'prove_deposit', { vault_id: id, raw_tx, vout, proof }));
   },
 
-  async borrow(d, [id, offerId, dollars, payoutTo]) {
+  /**
+   * `openPerBtc` is where the auction opens if this loan defaults, in dollars per BTC. Set
+   * it above anything a bitcoin might fetch at the due date: too low can sell your coins
+   * cheaply, and too high costs nothing. Zero uses the lowest the rules allow.
+   */
+  async borrow(d, [id, offerId, dollars, openPerBtc, payoutTo]) {
+    if (openPerBtc === undefined) throw new Error('usage: borrow <vault> <offer> <dollars> <auction opening price per BTC> [payout to]');
     const v = await view(d.network, d.ripcord, 'get_vault', { vault_id: id });
-    const args = { vault_id: id, offer_id: offerId, principal: (BigInt(dollars) * USDC).toString() };
+    const args = {
+      vault_id: id,
+      offer_id: offerId,
+      principal: (BigInt(dollars) * USDC).toString(),
+      auction_open_per_btc: (BigInt(openPerBtc) * USDC).toString(),
+    };
     if (payoutTo) args.payout_to = payoutTo;
     report(await call(d.network, v.owner, d.ripcord, 'borrow', args, { deposit: 1n }));
   },
@@ -168,7 +179,7 @@ const commands = {
   /** Asks the MPC network to sign, then shows the finished Bitcoin transaction. */
   async sign(d, [id, feeSats]) {
     const v = await view(d.network, d.ripcord, 'get_vault', { vault_id: id });
-    report(await call(d.network, v.beneficiary, d.ripcord, 'request_signature', { vault_id: id, fee_sats: feeSats }));
+    report(await call(d.network, v.beneficiary, d.ripcord, 'request_signature', { vault_id: id, fee_sats: feeSats }, { deposit: 1n }));
     const after = await view(d.network, d.ripcord, 'get_vault', { vault_id: id });
     console.log(after.signed_tx ? `  signed ${after.signed_txid}` : '  no signature stored');
   },

@@ -89,12 +89,14 @@ if (!initialised) {
         params: {
           min_collateral_sats: 5_000,
           grace_blocks: 2,
+          start_window_blocks: 3,
           auction_seconds: 900,
           auction_blocks: 4,
-          safety_blocks: 4,
+          safety_blocks: 12,
           auction_start_bps: 30_000,
           flywheel_share_bps: 0,
           max_btc_fee_bps: 1_000,
+          max_tip_age_seconds: 3_000,
         },
       },
     }),
@@ -172,7 +174,7 @@ const destination = bytesToHex(addressToScript('tb', wallet.address));
 must(await call(NETWORK, account, account, 'release', { vault_id: String(id), destination }, { deposit: 1n }), 'released the vault');
 
 const started = Date.now();
-await call(NETWORK, account, account, 'request_signature', { vault_id: String(id), fee_sats: '700' }).then(
+await call(NETWORK, account, account, 'request_signature', { vault_id: String(id), fee_sats: '700' }, { deposit: 1n }).then(
   (r) => record('asked the MPC network to sign', { near_tx: r.hash, ok: r.ok, failures: r.failures }),
   (e) => record('the signature request is still running', { note: e.message.slice(0, 200) }),
 );

@@ -7,7 +7,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { accountFor, call, NEAR, view } from './lib/near.mjs';
+import { accountFor, call, NEAR, view, viewAccount } from './lib/near.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const NETWORK = 'testnet';
@@ -30,13 +30,23 @@ const code = (name) => readFileSync(join(here, '..', 'contracts', 'wasm', `${nam
 const PARAMS = {
   min_collateral_sats: 5_000,
   grace_blocks: 2,
+  start_window_blocks: 3,
   auction_seconds: 900,
   auction_blocks: 4,
-  safety_blocks: 4,
+  safety_blocks: 12,
   auction_start_bps: 30_000,
   flywheel_share_bps: 1_000,
   max_btc_fee_bps: 1_000,
+  max_tip_age_seconds: 3_000,
 };
+
+// 16 NEAR per dollar, halving twelve times, in half an hour so a test run can reach a
+// sensible rate. A long-lived deployment would run this over a day.
+const SALE = { sale_seconds: '1800', sale_start_rate: ((16n * NEAR) / 1_000_000n).toString(), sale_halvings: 12 };
+
+// Offers and balances are stored without anyone paying for them, so each contract keeps a
+// margin. Anyone can top up a locked contract with a plain transfer.
+const MIN_FREE_NEAR = 1n;
 
 const must = (label, r) => {
   console.log(`${label}: ${r.ok ? 'ok' : 'FAILED'} ${r.hash}`);
@@ -69,8 +79,7 @@ if (!(await initialised(endowment))) {
       pool,
       keeper_bounty: (NEAR / 100n).toString(),
       keeper_float: (NEAR / 2n).toString(),
-      sale_seconds: '3600',
-      initial_rate: (NEAR / 4n / 1_000_000n).toString(),
+      ...SALE,
     }),
   );
 }
@@ -96,6 +105,14 @@ if (!(await initialised(ripcord))) {
 const storage = NEAR / 100n;
 must('register ripcord', await call(NETWORK, ripcord, usdc, 'storage_deposit', {}, { deposit: storage }));
 must('register endowment', await call(NETWORK, endowment, usdc, 'storage_deposit', {}, { deposit: storage }));
+
+for (const id of [ripcord, usdc, endowment]) {
+  const a = await viewAccount(NETWORK, id);
+  const free = BigInt(a.amount) - BigInt(a.storage_usage) * 10n ** 19n;
+  const text = `${id}: ${Number(free / 10n ** 21n) / 1000} NEAR above its storage`;
+  if (free < MIN_FREE_NEAR * NEAR) throw new Error(`${text}. Send it more before use.`);
+  console.log(text);
+}
 
 const deployment = {
   network: NETWORK,

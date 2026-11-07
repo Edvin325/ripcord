@@ -276,8 +276,9 @@ export class SimBitcoin {
 }
 
 /** The light client, reading the simulated chain and checking proofs by walking them. */
-export function mockLightClient(bitcoin) {
-  const state = { paused: false, staleBy: 0 };
+export function mockLightClient(bitcoin, nowMs) {
+  // `staleSeconds` makes the newest header that much older, as if the relayer had stopped.
+  const state = { paused: false, staleBy: 0, staleSeconds: 0 };
   const walk = (leaf, index, siblings) => {
     let hash = leaf;
     let at = Number(index);
@@ -292,6 +293,19 @@ export function mockLightClient(bitcoin) {
     state,
     handlers: {
       get_last_block_height: () => bitcoin.height - state.staleBy,
+      get_last_block_header: () => ({
+        block_header: {
+          version: 2,
+          prev_block_hash: '00'.repeat(32),
+          merkle_root: '00'.repeat(32),
+          time: Math.floor(nowMs() / 1000) - state.staleSeconds,
+          bits: 0,
+          nonce: 0,
+        },
+        block_hash: '00'.repeat(32),
+        chain_work: '00'.repeat(32),
+        block_height: bitcoin.height - state.staleBy,
+      }),
       verify_transaction_inclusion_v2(args) {
         if (state.paused) throw new Error('light client is paused');
         const view = new DataView(args.buffer, args.byteOffset, args.byteLength);
@@ -332,8 +346,9 @@ export function mockLightClient(bitcoin) {
   };
 }
 
-export function mockPool() {
-  const state = { staked: new Map(), unstaked: new Map() };
+/** A staking pool. As on the real one, each `unstake` restarts a four-epoch wait. */
+export function mockPool(near) {
+  const state = { staked: new Map(), unstaked: new Map(), withdrawableAt: new Map() };
   return {
     state,
     handlers: {
@@ -349,6 +364,15 @@ export function mockPool() {
         const amount = BigInt(JSON.parse(new TextDecoder().decode(args)).amount);
         state.staked.set(ctx.predecessor, state.staked.get(ctx.predecessor) - amount);
         state.unstaked.set(ctx.predecessor, (state.unstaked.get(ctx.predecessor) ?? 0n) + amount);
+        state.withdrawableAt.set(ctx.predecessor, near.epoch + 4);
+        return null;
+      },
+      withdraw_all(_args, ctx) {
+        if (near.epoch < (state.withdrawableAt.get(ctx.predecessor) ?? 0)) {
+          throw new Error('The unstaked balance is not yet available due to unstaking delay');
+        }
+        near.accounts.get(ctx.predecessor).balance += state.unstaked.get(ctx.predecessor) ?? 0n;
+        state.unstaked.set(ctx.predecessor, 0n);
         return null;
       },
     },
@@ -358,8 +382,11 @@ export function mockPool() {
 export const NEAR = 10n ** 24n;
 export const USDC = 1_000_000n;
 
-/** yoctoNEAR per micro-USDC: 0.25 NEAR per dollar, for a NEAR price near four dollars. */
-export const INITIAL_RATE = (NEAR / 4n) / USDC;
+/** yoctoNEAR per micro-USDC: 16 NEAR per dollar, far above any likely price. */
+export const SALE_START_RATE = (16n * NEAR) / USDC;
+
+/** Twelve halvings end at 1/256 NEAR per dollar, far below any likely price. */
+export const SALE_HALVINGS = 12;
 
 export const ACCOUNTS = {
   ripcord: 'ripcord.test',
@@ -377,12 +404,14 @@ export const ACCOUNTS = {
 export const DEFAULT_PARAMS = {
   min_collateral_sats: 10_000,
   grace_blocks: 6,
+  start_window_blocks: 6,
   auction_seconds: 3_600,
   auction_blocks: 12,
   safety_blocks: 12,
   auction_start_bps: 30_000,
   flywheel_share_bps: 1_000,
   max_btc_fee_bps: 500,
+  max_tip_age_seconds: 1_800,
 };
 
 /**
@@ -393,8 +422,8 @@ export function createWorld({ wasm, params = {}, vaultFee = NEAR / 10n, keeperBo
   const near = new SimChain();
   const bitcoin = new SimBitcoin();
   const mpc = mockMpc(new Uint8Array(32).fill(0x5a));
-  const client = mockLightClient(bitcoin);
-  const pool = mockPool();
+  const client = mockLightClient(bitcoin, () => near.timeMs);
+  const pool = mockPool(near);
   const a = ACCOUNTS;
 
   near.mock(a.mpc, mpc.handlers);
@@ -435,7 +464,8 @@ export function createWorld({ wasm, params = {}, vaultFee = NEAR / 10n, keeperBo
       keeper_bounty: keeperBounty.toString(),
       keeper_float: keeperFloat.toString(),
       sale_seconds: '3600',
-      initial_rate: INITIAL_RATE.toString(),
+      sale_start_rate: SALE_START_RATE.toString(),
+      sale_halvings: SALE_HALVINGS,
     }),
     'endowment init',
   );

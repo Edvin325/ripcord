@@ -140,7 +140,7 @@ export function Locks({ vault }) {
 
 export function offerRows(offers) {
   return offers
-    .filter((o) => o.active && BigInt(o.available) > 0n)
+    .filter((o) => BigInt(o.available) > 0n)
     .sort((a, b) => Number(BigInt(b.micro_usdc_per_btc) - BigInt(a.micro_usdc_per_btc)));
 }
 
@@ -198,7 +198,12 @@ export function Borrow() {
   const maxLoan = offer ? (BigInt(sats) * BigInt(offer.micro_usdc_per_btc)) / 100_000_000n : 0n;
   const margin = 12;
   const lifetime = offer
-    ? offer.term_blocks + params.grace_blocks + params.auction_blocks + params.safety_blocks + margin
+    ? offer.term_blocks +
+      params.grace_blocks +
+      params.start_window_blocks +
+      params.auction_blocks +
+      params.safety_blocks +
+      margin
     : 0;
   const mine = snap.vaults.filter((v) => v.owner === snap.account);
 
@@ -409,17 +414,13 @@ export function Lend() {
                   <td>{percent(o.apr_bps)}</td>
                   <td class="mono">{usd(o.available, 0)}</td>
                   <td>
-                    {o.active ? (
-                      <button
-                        class="ghost small"
-                        disabled={busy}
-                        onClick={() => act(() => backend.cancelOffer(o.id), 'Offer closed.')}
-                      >
-                        Close offer
-                      </button>
-                    ) : (
-                      <span class="muted">Closed</span>
-                    )}
+                    <button
+                      class="ghost small"
+                      disabled={busy}
+                      onClick={() => act(() => backend.cancelOffer(o.id), 'Offer closed.')}
+                    >
+                      Close offer
+                    </button>
                   </td>
                 </tr>
               ))}
