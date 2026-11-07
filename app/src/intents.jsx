@@ -38,6 +38,7 @@ function useQuote(kind, route, micro) {
 }
 
 function QuoteLine({ kind, state, route }) {
+  if (!route) return null; // an older quote can still be in state when the route is cleared
   if (state.status === 'loading') return <p class="muted">Asking NEAR Intents for a live price…</p>;
   if (state.status === 'failed') {
     return <p class="muted">No live quote right now. Repaying and settling directly on NEAR always works.</p>;
@@ -47,10 +48,12 @@ function QuoteLine({ kind, state, route }) {
   const text =
     kind === 'payout'
       ? `You would receive ${Number(q.amountOutFormatted).toFixed(2)} USDC on ${route.label}`
-      : `You would pay ${Number(q.amountInFormatted).toFixed(2)} USDC from ${route.label}`;
+      : `You would send up to ${Number(q.amountInFormatted).toFixed(2)} USDC from ${route.label}`;
   return (
     <p class="quote-line">
-      <b>{text}</b> in about {q.timeEstimate} seconds. Live quote from NEAR Intents.
+      <b>{text}</b> in about {q.timeEstimate} seconds.
+      {kind === 'repay' && ' That includes a slippage buffer, and anything unused is refunded.'} Live quote from NEAR
+      Intents.
     </p>
   );
 }
