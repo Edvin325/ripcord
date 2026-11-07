@@ -6,7 +6,10 @@
   "description": "Command-line tools for Ripcord: proofs, the keeper, the escape ticket and the on-chain verifier.",
   "scripts": {
     "fixtures": "node fixtures.mjs",
-    "test": "node --test test/"
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20.19"
   },
   "dependencies": {
     "@noble/curves": "^1.9.7",

@@ -27,7 +27,7 @@ Borrowing against Bitcoin today means handing it to a custodian or a bridge, the
 
 ## Try it
 
-Steps 1 to 3 need nothing but Node 20 or newer.
+Steps 1 to 3 need nothing but Node 20.19 or newer. They were run from a fresh clone on Node 20, 22, 24 and 26.
 
 **1. Run the test suite against the compiled contracts.**
 
@@ -189,6 +189,6 @@ These use daily average prices, which hide intraday wicks, and past prices do no
 ## Hackathon notes
 
 - **All work is new**, started on 7 Nov 2026, inside the window.
-- **Libraries:** near-sdk, near-contract-standards, near-api-js, @noble/curves, @noble/hashes, bitcoinjs-lib (tests only), preact, vite, @hot-labs/near-connect, playwright-core (tests only). Fonts: Barlow Condensed and IBM Plex, under the SIL Open Font License.
+- **Libraries:** near-sdk, near-contract-standards, near-api-js, @noble/curves, @noble/hashes, bitcoinjs-lib, ecpair and tiny-secp256k1 (tests and the test wallet), preact, @preact/preset-vite, vite, @hot-labs/near-connect, playwright-core (browser check and video). Fonts: Barlow Condensed and IBM Plex through @fontsource, under the SIL Open Font License.
 - **AI tools:** written with Claude Code.
 - **License:** MIT.

@@ -2,7 +2,7 @@
 // Do the tests really guard the fixes? This undoes each fix in turn, rebuilds the real
 // contract, runs the suite, and checks that the test written for that fix goes red. A
 // mutation that survives means a test that proves nothing. The source is put back after
-// each one, and the final rebuild must match the committed wasm byte for byte.
+// each one, and the final rebuild must match a build of the untouched code byte for byte.
 //
 // Needs Rust and cargo-near, and takes a while because each mutation is a full build.
 //
@@ -10,7 +10,7 @@
 
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -167,7 +167,7 @@ function build(contract) {
 
 /** The names of the tests that failed. */
 function failingTests() {
-  const r = spawnSync(process.execPath, ['--test', '--test-reporter=tap', 'test/'], { cwd: here, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  const r = spawnSync(process.execPath, ['--test', '--test-reporter=tap'], { cwd: here, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   return r.stdout
     .split('\n')
     .map((line) => line.match(/^not ok \d+ - (.+)$/)?.[1])
@@ -175,7 +175,16 @@ function failingTests() {
 }
 
 const sha = (bytes) => createHash('sha256').update(bytes).digest('hex');
+const built = (name) => join(root, 'target', 'near', name, `${name}.wasm`);
 const results = [];
+
+// The reference is a build of the untouched code on this machine. Compiled wasm carries local
+// paths, so a build elsewhere never matches the copies committed in contracts/wasm.
+const baseline = {};
+for (const [contract, name] of Object.entries(WASM)) {
+  build(contract);
+  baseline[name] = readFileSync(built(name));
+}
 
 for (const m of MUTATIONS) {
   const path = join(root, m.file);
@@ -193,27 +202,25 @@ for (const m of MUTATIONS) {
     writeFileSync(path, original);
     // Later mutations must run against the real build of this contract, not this broken one.
     const name = WASM[m.contract];
-    copyFileSync(join(root, 'contracts', 'wasm', `${name}.wasm`), join(root, 'target', 'near', name, `${name}.wasm`));
+    writeFileSync(built(name), baseline[name]);
   }
 }
 
-// Back to the real contracts, and prove it: each must match the committed wasm exactly.
+// Back to the real contracts, and prove it: each must match the first build exactly.
 const mismatched = [];
 for (const [contract, name] of Object.entries(WASM)) {
   build(contract);
-  const built = sha(readFileSync(join(root, 'target', 'near', name, `${name}.wasm`)));
-  const committed = sha(readFileSync(join(root, 'contracts', 'wasm', `${name}.wasm`)));
-  if (built !== committed) mismatched.push(name);
+  if (sha(readFileSync(built(name))) !== sha(baseline[name])) mismatched.push(name);
 }
 
 const clean = failingTests();
 mkdirSync(join(root, 'evidence'), { recursive: true });
 writeFileSync(
   join(root, 'evidence', 'mutation-check.json'),
-  `${JSON.stringify({ mutations: results, restored_wasm_matches_commit: mismatched.length === 0, failing_after_restore: clean }, null, 2)}\n`,
+  `${JSON.stringify({ mutations: results, restored_build_matches_the_start: mismatched.length === 0, failing_after_restore: clean }, null, 2)}\n`,
 );
 
 const survived = results.filter((r) => !r.caught);
 console.log(`\n${results.length - survived.length} of ${results.length} fixes are guarded by a test that goes red without them.`);
-console.log(`After restoring: ${clean.length} failing, wasm ${mismatched.length ? `DIFFERS for ${mismatched.join(', ')}` : 'matches the commit'}.`);
+console.log(`After restoring: ${clean.length} failing, wasm ${mismatched.length ? `DIFFERS for ${mismatched.join(', ')}` : 'matches the first build'}.`);
 if (survived.length || clean.length || mismatched.length) process.exitCode = 1;
