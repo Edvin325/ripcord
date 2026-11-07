@@ -2,6 +2,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { newOwnerKey, bytesToHex } from '@tools/lib/btc-core.mjs';
 import { btc, dollars, go, hoursFromBlocks, MICRO, near, num, percent, SATS, short, usd, useApp } from './lib.js';
 import { remember } from './keys.js';
+import { EXPLORER, PROOFS } from './proofs.js';
 
 // ---- Shared pieces ----
 
@@ -90,6 +91,26 @@ export function Home() {
           </p>
         </div>
         <Locks />
+      </section>
+
+      <section>
+        <p class="eyebrow">Proven on real networks</p>
+        <h2>Look these up yourself</h2>
+        <table class="card-table">
+          <tbody>
+            {PROOFS.map(({ what, txid }, i) => (
+              <tr key={txid}>
+                <td class="num">{i + 1}</td>
+                <th scope="row">
+                  <a class="mono" href={`${EXPLORER}${txid}`} target="_blank" rel="noreferrer">
+                    {short(txid, 8, 4)}
+                  </a>
+                </th>
+                <td>{what}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </section>
 
       <section>

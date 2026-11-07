@@ -4,6 +4,8 @@
 //
 //   npx vite preview --port 4179 --strictPort &
 //   FFMPEG=path/to/ffmpeg node scripts/record-demo.mjs ripcord-demo.mp4 http://localhost:4179/
+//
+// Set PROOF_TX to a Bitcoin testnet3 transaction to close on it in a public block explorer.
 
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -14,19 +16,22 @@ import { chromium } from 'playwright-core';
 const out = resolve(process.argv[2] ?? 'ripcord-demo.mp4');
 const base = process.argv[3] ?? 'http://localhost:4179/';
 const ffmpeg = process.env.FFMPEG ?? 'ffmpeg';
-const WIDTH = 1280;
-const HEIGHT = 720;
-const SCALE = 1.5; // so the frames are 1920x1080 and the text stays crisp
+const proofTx = process.env.PROOF_TX;
+const WIDTH = 1920;
+const HEIGHT = 1080;
+const ZOOM = 1.5; // the page lays out as if 1280 wide, and draws crisply at 1920
 
 const dir = mkdtempSync(join(tmpdir(), 'ripcord-demo-'));
 const browser = await chromium.launch({ channel: process.env.UI_BROWSER ?? 'msedge', headless: true });
-const context = await browser.newContext({ viewport: { width: WIDTH, height: HEIGHT }, deviceScaleFactor: SCALE });
+const context = await browser.newContext({ viewport: { width: WIDTH, height: HEIGHT }, bypassCSP: true });
 const page = await context.newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 
-// Frames arrive only when something on screen changes, each with its own timestamp.
+// Frames arrive only when something on screen changes, each with its own timestamp. A cut
+// marks a frame whose gap to the next one is dropped, for skipping a page load.
 const frames = [];
+const cuts = new Set();
 const cdp = await context.newCDPSession(page);
 cdp.on('Page.screencastFrame', ({ data, sessionId, metadata }) => {
   const name = `f${String(frames.length).padStart(6, '0')}.jpg`;
@@ -37,7 +42,7 @@ cdp.on('Page.screencastFrame', ({ data, sessionId, metadata }) => {
 
 const wait = (ms) => page.waitForTimeout(ms);
 
-async function dress() {
+async function dress(tag = 'Simulator: the real contracts, with Bitcoin simulated') {
   await page.addStyleTag({
     content: `
       #demo-caption {
@@ -55,16 +60,24 @@ async function dress() {
         transition: left .5s cubic-bezier(.3,.7,.2,1), top .5s cubic-bezier(.3,.7,.2,1), width .12s, height .12s;
       }
       #demo-cursor.down { width: 12px; height: 12px; }
-      html { scroll-behavior: smooth; }
+      #demo-tag {
+        position: fixed; right: 14px; top: 104px; z-index: 99997; padding: 4px 10px;
+        background: #16140f; color: #f3eee3; border-radius: 3px;
+        font: 500 13px/1.3 'IBM Plex Sans', system-ui, sans-serif;
+      }
+      html { scroll-behavior: smooth; zoom: ${ZOOM}; }
     `,
   });
-  await page.evaluate(() => {
-    for (const id of ['demo-caption', 'demo-cursor']) {
+  await page.evaluate((text) => {
+    for (const id of ['demo-caption', 'demo-cursor', 'demo-tag']) {
       const el = document.createElement('div');
       el.id = id;
       document.body.append(el);
     }
-  });
+    const tag = document.getElementById('demo-tag');
+    tag.textContent = text;
+    tag.style.display = text ? 'block' : 'none';
+  }, tag);
 }
 
 async function caption(text, ms) {
@@ -83,8 +96,11 @@ async function scrollTo(y, ms = 900) {
 
 /** Scrolls an element to a comfortable height, clear of the caption and the bottom bar. */
 async function reveal(locator, offset = 110) {
-  const top = await locator.evaluate((el) => el.getBoundingClientRect().top + window.scrollY);
-  await scrollTo(Math.max(0, top - offset));
+  await locator.evaluate((el, margin) => {
+    el.style.scrollMarginTop = `${margin}px`;
+    el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }, offset);
+  await wait(950);
 }
 
 async function press(locator) {
@@ -95,13 +111,29 @@ async function press(locator) {
       c.style.left = `${x}px`;
       c.style.top = `${y}px`;
     },
-    [box.x + box.width / 2, box.y + box.height / 2],
+    [(box.x + box.width / 2) / ZOOM, (box.y + box.height / 2) / ZOOM],
   );
   await wait(620);
   await page.evaluate(() => document.getElementById('demo-cursor').classList.add('down'));
   await wait(130);
   await locator.click();
   await page.evaluate(() => document.getElementById('demo-cursor').classList.remove('down'));
+}
+
+/**
+ * The caption says this price is live, so it has to be. The API can refuse a burst of calls
+ * from a shared connection, so ask again, and stop rather than film a false claim.
+ */
+async function liveQuote(select) {
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    await select.selectOption('base');
+    const line = page.locator('.intents p').filter({ hasText: /Live quote from NEAR Intents|No live quote/ }).first();
+    await line.waitFor({ timeout: 20000 });
+    if (/Live quote from NEAR Intents/.test(await line.textContent())) return;
+    await select.selectOption('near');
+    await wait(5000);
+  }
+  throw new Error('NEAR Intents gave no live quote, so this take would be false');
 }
 
 const button = (name, exact = false) => page.getByRole('button', { name, exact }).first();
@@ -111,7 +143,8 @@ await page.goto(base);
 await page.getByText('Borrow against Bitcoin that never leaves Bitcoin').first().waitFor();
 await dress();
 await wait(500);
-await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 88, maxWidth: WIDTH * SCALE, maxHeight: HEIGHT * SCALE, everyNthFrame: 1 });
+const screencast = { format: 'jpeg', quality: 88, maxWidth: WIDTH, maxHeight: HEIGHT, everyNthFrame: 1 };
+await cdp.send('Page.startScreencast', screencast);
 
 // The problem.
 await wait(500);
@@ -140,7 +173,7 @@ await wait(500);
 
 const sendCoins = button('Send from the simulated wallet');
 await reveal(sendCoins, 260);
-await caption('You lock real Bitcoin in your own vault address.', 900);
+await caption('You lock Bitcoin in an address of your own.', 900);
 await press(sendCoins);
 await notice('confirmed');
 await wait(600);
@@ -156,8 +189,7 @@ await caption('');
 const deliver = page.getByLabel('Deliver the dollars to');
 await reveal(page.getByLabel('If you default, the auction opens at this price per BTC'), 160);
 await caption('You borrow dollars, delivered to any chain through NEAR Intents. This is a live price.', 700);
-await deliver.selectOption('base');
-await page.locator('.quote-line, .intents .muted').filter({ hasText: /Live quote from NEAR Intents|No live quote/ }).first().waitFor({ timeout: 15000 });
+await liveQuote(deliver);
 await wait(3000);
 await press(button('Borrow', true));
 await notice('The Bitcoin has not moved');
@@ -206,8 +238,32 @@ await scrollTo(0, 500);
 await press(page.getByRole('link', { name: 'What NEAR gets' }).first());
 await page.getByText('Every Bitcoin loan makes NEAR stronger').first().waitFor();
 await wait(800);
+await reveal(page.getByText('Four things NEAR gets').first(), 90);
 await caption('Every loan stakes NEAR with validators, for good, through a contract with no keys.', 4200);
-await caption('Try switching it off yourself. Built at NEAR HACKATHON.', 3800);
+await caption('');
+
+// The same contracts, on real networks.
+if (proofTx) {
+  // Skip the page load: the viewer goes straight from the app to the loaded explorer.
+  await cdp.send('Page.stopScreencast');
+  cuts.add(frames.length - 1);
+  await page.goto(`https://mempool.space/testnet/tx/${proofTx}`, { waitUntil: 'domcontentloaded' });
+  await page.getByText(proofTx.slice(0, 8), { exact: false }).first().waitFor({ timeout: 30000 });
+  await dress('');
+  await page.getByRole('button', { name: /Details/ }).first().click({ timeout: 8000 });
+  const script = page.getByText('OP_IF', { exact: true }).first();
+  await script.waitFor({ timeout: 8000 });
+  await page.evaluate(() => document.getElementById('demo-cursor').remove());
+  await script.evaluate((el) => {
+    el.style.scrollMarginTop = '140px';
+    el.scrollIntoView({ block: 'start', behavior: 'instant' });
+  });
+  await wait(1200);
+  await cdp.send('Page.startScreencast', screencast);
+  await wait(500);
+  await caption('And on real networks. A NEAR contract signed this spend on Bitcoin testnet, through this script.', 5400);
+}
+await caption('Every hash is in the repo. Try switching it off yourself. Built at NEAR HACKATHON.', 4200);
 
 await cdp.send('Page.stopScreencast');
 await browser.close();
@@ -221,7 +277,7 @@ if (errors.length) {
 const lines = [];
 frames.forEach((f, i) => {
   const next = frames[i + 1]?.t ?? f.t + 2;
-  lines.push(`file '${f.name}'`, `duration ${(next - f.t).toFixed(4)}`);
+  lines.push(`file '${f.name}'`, `duration ${(cuts.has(i) ? 0.2 : next - f.t).toFixed(4)}`);
 });
 lines.push(`file '${frames.at(-1).name}'`);
 const list = join(dir, 'frames.txt');
@@ -232,7 +288,6 @@ const r = spawnSync(
   ['-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', list, '-vf', 'fps=30,format=yuv420p', '-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-threads', '2', '-movflags', '+faststart', out],
   { stdio: 'inherit' },
 );
-const seconds = frames.at(-1).t - frames[0].t + 2;
 rmSync(dir, { recursive: true, force: true });
 if (r.status !== 0) throw new Error('ffmpeg failed');
-console.log(`${out}: ${frames.length} frames, ${seconds.toFixed(1)} seconds`);
+console.log(`${out}: ${frames.length} frames`);

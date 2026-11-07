@@ -506,6 +506,7 @@ table {
 
 .card-table {
   border-top: 2px solid var(--rule);
+  margin-bottom: 2rem;
 }
 
 .card-table td,
