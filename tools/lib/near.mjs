@@ -46,6 +46,19 @@ export async function view(network, contractId, method, args = {}) {
   return text ? JSON.parse(text) : null;
 }
 
+/** A read-only call with raw arguments, for methods that take borsh. */
+export async function viewBytes(network, contractId, method, bytes) {
+  const result = await rpc(network, 'query', {
+    request_type: 'call_function',
+    finality: 'final',
+    account_id: contractId,
+    method_name: method,
+    args_base64: Buffer.from(bytes).toString('base64'),
+  });
+  if (result.error) throw new Error(result.error);
+  return JSON.parse(Buffer.from(result.result).toString('utf8'));
+}
+
 export async function viewAccount(network, accountId) {
   return rpc(network, 'query', { request_type: 'view_account', finality: 'final', account_id: accountId });
 }
