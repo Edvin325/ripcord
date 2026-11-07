@@ -37,7 +37,7 @@ npm install
 npm test
 ```
 
-You see `tests 82`, `pass 82`. This runs the compiled contracts from `contracts/wasm` inside a small NEAR runtime, `tools/sim`. Its Bitcoin checks the vault's hash commitment, signatures, low-S rule and timelock, so a pass means a spend was accepted. A fresh build in `target/near` takes priority if there is one.
+You see `tests 89`, `pass 89`. This runs the compiled contracts from `contracts/wasm` inside a small NEAR runtime, `tools/sim`. Its Bitcoin checks the vault's hash commitment, signatures, low-S rule and timelock, so a pass means a spend was accepted. A fresh build in `target/near` takes priority if there is one.
 
 **2. Watch the whole story in a terminal.**
 
@@ -116,7 +116,7 @@ These ran on NEAR testnet and Bitcoin testnet3, with the real MPC signers and th
 | Part | State |
 | --- | --- |
 | Bitcoin library | Done. Tested against BIP vectors, real transactions and bitcoinjs-lib |
-| Contracts | Built. All 82 tests pass on the compiled wasm, and an AI review's findings are fixed |
+| Contracts | Built. All 89 tests pass on the compiled wasm, and an AI review's findings are fixed |
 | Vault, deposit proof, MPC signing, Bitcoin spend | **Done on real networks**, for both locks |
 | Web app | Works in the simulator. Checked in a real browser with `app/scripts/ui-check.mjs` |
 | NEAR Intents | Live `dry` quotes work in the app and the CLI. Real delivery is **not done**: Intents has no testnet, and this build is not on mainnet. `borrow` can pay a 1Click deposit address through `payout_to`, but the app does not request one yet |
