@@ -188,7 +188,7 @@ await caption('');
 // Borrow, with a live price from Intents.
 const deliver = page.getByLabel('Deliver the dollars to');
 await reveal(page.getByLabel('If you default, the auction opens at this price per BTC'), 160);
-await caption('You borrow dollars, delivered to any chain through NEAR Intents. This is a live price.', 700);
+await caption('You borrow dollars. NEAR Intents prices delivery to any chain. This is a live quote.', 700);
 await liveQuote(deliver);
 await wait(3000);
 await press(button('Borrow', true));

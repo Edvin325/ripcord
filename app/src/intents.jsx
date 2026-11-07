@@ -74,14 +74,14 @@ function RouteSelect({ label, value, onChange }) {
   );
 }
 
-/** Intents has no testnet, so everywhere but mainnet this shows the price and says so. */
+/** Intents has no testnet, and this build has no mainnet deployment, so it says so. */
 function Limits({ route }) {
   const { backend } = useApp();
   if (!route || backend.label === 'Mainnet') return null;
   return (
     <p class="muted small-note">
-      NEAR Intents has no testnet, so this is the real price and here the dollars stay on NEAR. On mainnet they arrive on{' '}
-      {route.label}.
+      NEAR Intents has no testnet, so this is a real price, and the dollars stay on NEAR here. Delivery to {route.label}{' '}
+      needs a mainnet deployment.
     </p>
   );
 }

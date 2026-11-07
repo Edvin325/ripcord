@@ -66,7 +66,7 @@ npm run dev
 Open http://localhost:4173. The Simulator runs the real contracts in your browser tab.
 
 - Click **Try to switch it off**, then **Pull the ripcord**. You see a loan open, a 50% crash change nothing, every dependency switch off, Bitcoin refuse the ticket, then accept it.
-- Click **Borrow**, then **Open vault**, and follow the steps. You see a live NEAR Intents price under **Deliver the dollars to**.
+- Click **Borrow**, then **Open vault**, and follow the steps. Pick Base under **Deliver the dollars to**, and you see a live NEAR Intents price.
 - Press **Crash 50%** in the bottom bar during a loan. You see nothing happen to it.
 
 **5. Check the Bitcoin code against the spec.**
@@ -98,7 +98,7 @@ This undoes each security fix in turn, rebuilds the real contract and confirms t
 
 ## Proven on real networks
 
-These ran on NEAR testnet and Bitcoin testnet3, with the real MPC signers and the real light client. Every hash is in `evidence/`, so you can look each one up.
+These ran on NEAR testnet and Bitcoin testnet3, with the real MPC signers and the real light client. Every hash is in `evidence/`, so you can look each one up. They ran before the security fixes in `docs/THREAT-MODEL.md`. The Bitcoin script has not changed since, but the contracts have.
 
 **Lock 1: a NEAR contract spent native Bitcoin.** The compiled contract got its vault key from the MPC network, proved a real deposit through the light client, had the signers sign in 8 seconds, and stored the finished transaction. Bitcoin accepted it.
 
@@ -119,19 +119,19 @@ These ran on NEAR testnet and Bitcoin testnet3, with the real MPC signers and th
 | Contracts | Built. All 82 tests pass on the compiled wasm, and an AI review's findings are fixed |
 | Vault, deposit proof, MPC signing, Bitcoin spend | **Done on real networks**, for both locks |
 | Web app | Works in the simulator. Checked in a real browser with `app/scripts/ui-check.mjs` |
-| NEAR Intents | Live `dry` quotes work. Intents has no testnet, so payouts on testnet stay on NEAR |
+| NEAR Intents | Live `dry` quotes work in the app and the CLI. Real delivery is **not done**: Intents has no testnet, and this build is not on mainnet. `borrow` can pay a 1Click deposit address through `payout_to`, but the app does not request one yet |
 | A loan with USDC on real networks | **Not done yet.** So far this has only run in the simulator |
 | The endowment on real networks | **Not done yet.** So far this has only run in the simulator |
 
 ## Why NEAR
 
-One contract can verify Bitcoin history through the light client, sign real Bitcoin transactions through Chain Signatures, and pay out on any chain through NEAR Intents. Other routes need a new validator set, a custodian or wrapped coins.
+One contract can verify Bitcoin history through the light client, sign real Bitcoin transactions through Chain Signatures, and reach any chain through NEAR Intents. Other routes need a new validator set, a custodian or wrapped coins.
 
 | NEAR feature | Use here |
 | --- | --- |
 | Chain Signatures | The contract signs each vault's Bitcoin spend. Each vault has its own derived key |
 | Bitcoin light client | Proves deposits. No relayer is trusted |
-| NEAR Intents | Pays out to any chain, repays from any chain, and prices BTC sales |
+| NEAR Intents | Prices payouts to any chain, repayments from any chain, and BTC sales. See Status for what is live |
 | Staking | The endowment stakes every fee with a validator |
 
 ## What NEAR gets
@@ -139,7 +139,7 @@ One contract can verify Bitcoin history through the light client, sign real Bitc
 Ripcord has no team, no token and no treasury key. A keyless endowment pays for its upkeep instead:
 
 1. **Staked NEAR that never leaves.** Each vault pays a flat fee in NEAR, and a share of all interest is sold for NEAR in a Dutch auction with no price feed. All of it is staked with a validator, and only rewards can ever come out. Rewards pay keepers.
-2. **Volume through Intents.** Payouts and repayments can cross chains through NEAR Intents, and that flow reaches the fee switch that buys back NEAR.
+2. **Volume through Intents.** Payouts and repayments are built to cross chains through NEAR Intents, and on mainnet that flow would reach the fee switch that buys back NEAR.
 3. **Native Bitcoin under NEAR's rules.** Coins stay on Bitcoin but follow a NEAR contract, with nothing wrapped.
 4. **An open kit for builders.** `crates/near-btc-script` has no dependencies. Any NEAR contract can use it to hold native Bitcoin under script rules.
 5. **Findings.** `docs/FINDINGS-FOR-NEAR.md` lists what we learned testing live contracts, including gaps in the docs.

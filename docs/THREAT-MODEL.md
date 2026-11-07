@@ -70,6 +70,7 @@ This is what Ripcord protects against, what it does not, and who carries each ri
 - The freshness check trusts the miner's timestamp, within Bitcoin's two-hour limit. The safety margin is sized to absorb that. The check assumes Bitcoin runs at no more than twice its usual speed, which holds on mainnet and not on testnet3.
 - The contract does not watch Bitcoin after signing, so `sats_locked` falls when a spend is signed, not when it confirms.
 - Interest is fixed at opening and is not reduced by early repayment.
+- Repaying through Intents is priced but not wired up. A 1Click delivery with `customRecipientMsg` arrives from `intents.near`, not the payer, and that feature is marked highly experimental, so a refused payment would need care. Direct repayment does not have this problem.
 - `near-sandbox` does not run on Windows, so the integration tests use `tools/sim`, which runs the compiled contracts but does not meter gas. Gas is covered only by real network runs.
 
 ## How this was reviewed

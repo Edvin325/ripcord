@@ -86,7 +86,7 @@ export function Home() {
             </li>
           </ol>
           <p>
-            The dollars can reach you on any chain through NEAR Intents, and you can repay the same way. The Bitcoin
+            NEAR Intents prices delivery of the dollars to any chain, live, and repayment from any chain. The Bitcoin
             never moves.
           </p>
         </div>
@@ -590,8 +590,8 @@ export function Near() {
         <li>
           <h3>Volume through Intents</h3>
           <p>
-            Loan payouts and repayments can cross chains through NEAR Intents, and that flow pays into the fee switch
-            that buys back NEAR.
+            Loan payouts and repayments are built to cross chains through NEAR Intents, and that flow would pay into the
+            fee switch that buys back NEAR.
           </p>
         </li>
         <li>
