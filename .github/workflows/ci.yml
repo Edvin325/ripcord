@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Bitcoin library and loan rules
+        run: cargo test -p near-btc-script -p ripcord-core
+
+  node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Lifecycle tests on the compiled contracts
+        working-directory: tools
+        run: |
+          npm ci
+          npm test
+      - name: The whole story, on the compiled contracts
+        working-directory: tools
+        run: node demo.mjs
+      - name: Build the app
+        working-directory: app
+        run: |
+          npm ci
+          npm run build
