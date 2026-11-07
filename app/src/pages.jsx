@@ -589,11 +589,50 @@ export function Near() {
       </ol>
 
       <h2>Keep it moving</h2>
-      <p>Anyone can run these. They only ever move the endowment’s money into its one validator pool.</p>
-      <button disabled={busy || !snap.account} onClick={() => act(() => backend.stakeEndowment(), 'Staked.')}>
-        Stake what has arrived
-      </button>
+      <p>
+        Anyone can run these. They can only sell the endowment’s dollars for NEAR and move NEAR into its one validator
+        pool.
+      </p>
+      <div class="row">
+        <button class="ghost" disabled={busy || !snap.account} onClick={() => act(() => backend.collectInterest(), 'Interest collected from Ripcord.')}>
+          Collect interest
+        </button>
+        <button class="ghost" disabled={busy || !snap.account} onClick={() => act(() => backend.startSale(), 'The sale is running. Its rate falls until someone buys.')}>
+          Start a sale
+        </button>
+        <button disabled={busy || !snap.account} onClick={() => act(() => backend.stakeEndowment(), 'Staked with the validator.')}>
+          Stake what has arrived
+        </button>
+      </div>
+
+      {e.sale && snap.saleRate && (
+        <SaleBox sale={e.sale} rate={BigInt(snap.saleRate)} />
+      )}
+
       <p class="muted small-note">Validator pool {short(e.pool, 20, 8)}</p>
     </>
+  );
+}
+
+/** Sells the endowment's dollars for NEAR. The rate falls until someone takes it. */
+function SaleBox({ sale, rate }) {
+  const { backend, snap, act, busy } = useApp();
+  const left = BigInt(sale.usdc_left);
+  const nearPerDollar = Number((rate * BigInt(MICRO)) / 10n ** 21n) / 1000;
+  return (
+    <section class="ticket">
+      <p class="eyebrow">Running sale</p>
+      <h2>{usd(left)} for sale</h2>
+      <p>
+        Now {nearPerDollar.toLocaleString('en-US', { maximumFractionDigits: 3 })} NEAR per dollar, and falling. No price
+        feed sets this: it drops until a buyer finds it worth taking.
+      </p>
+      <button
+        disabled={busy || !snap.account}
+        onClick={() => act(() => backend.buyUsdc(left * rate), 'Bought. That NEAR is now on its way to a validator.')}
+      >
+        Buy all of it
+      </button>
+    </section>
   );
 }

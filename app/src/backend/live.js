@@ -293,8 +293,22 @@ export class LiveBackend {
     return this.send(this.d.ripcord, 'withdraw', {}, 1n);
   }
 
+  // The endowment's upkeep. Every one of these is open to anyone.
+
   stakeEndowment() {
     return this.send(this.d.endowment, 'stake');
+  }
+
+  collectInterest() {
+    return this.send(this.d.endowment, 'collect_usdc');
+  }
+
+  startSale() {
+    return this.send(this.d.endowment, 'start_sale');
+  }
+
+  buyUsdc(yoctoNear) {
+    return this.send(this.d.endowment, 'buy_usdc', {}, yoctoNear);
   }
 
   // ---- Bitcoin ----

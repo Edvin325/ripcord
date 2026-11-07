@@ -273,9 +273,22 @@ export class SimBackend {
     this.btcPrice = usd;
   }
 
-  /** The endowment's permissionless upkeep, run as whoever is signed in. */
+  // The endowment's upkeep. Every one of these is open to anyone.
+
   stakeEndowment() {
     return this.send(A.endowment, 'stake');
+  }
+
+  collectInterest() {
+    return this.send(A.endowment, 'collect_usdc');
+  }
+
+  startSale() {
+    return this.send(A.endowment, 'start_sale');
+  }
+
+  buyUsdc(yoctoNear) {
+    return this.send(A.endowment, 'buy_usdc', {}, yoctoNear);
   }
 
   scriptOf(address) {
