@@ -87,16 +87,32 @@ cargo near build non-reproducible-wasm --no-abi
 
 Repeat in `contracts/endowment` and `contracts/test-usdc`. The output lands in `target/near/`.
 
+## Proven on real networks
+
+These ran on NEAR testnet and Bitcoin testnet3, with the real MPC signers and the real light client. Every hash is in `evidence/`, so you can look each one up.
+
+**Lock 1: a NEAR contract spent native Bitcoin.** The compiled contract got its vault key from the MPC network, proved a real deposit through the light client, had the signers sign in 8 seconds, and stored the finished transaction. Bitcoin accepted it.
+
+- Spend: [30f9bbf3…7d3c](https://mempool.space/testnet/tx/30f9bbf37bc8dcfe9c08238252fb8c9c7ae19cc6c269ca303691e003e5f97d3c), confirmed in block 5,302,906. The witness selector `01` shows lock 1.
+- Reproduce with `node tools/spike-contract.mjs <funded account>`. It needs about 3.1 testnet NEAR and some test Bitcoin.
+
+**Lock 2: Bitcoin alone enforced the escape.** A real node refused the owner's transaction before its block with `{"code":-26,"message":"non-final"}`, then accepted it at that block, with no contract call.
+
+- Spend: [20c415dc…3047](https://mempool.space/testnet/tx/20c415dc01e777500e1c85dd7dfc0b1fc037c08c2a8f65685b7c4f6b93323047). The empty witness selector shows lock 2.
+- The live light client also checked this vault's deposit: the real proof returned `true`, and the same proof with a forged txid returned `false`.
+- Reproduce with `node tools/prove-script.mjs`. It needs some test Bitcoin and no NEAR tokens.
+
 ## Status
 
 | Part | State |
 | --- | --- |
 | Bitcoin library | Done. Tested against BIP vectors, real transactions and bitcoinjs-lib |
 | Contracts | Built. All 60 lifecycle tests pass on the compiled wasm |
+| Vault, deposit proof, MPC signing, Bitcoin spend | **Done on real networks**, for both locks |
 | Web app | Works in the simulator. Checked in a real browser with `app/scripts/ui-check.mjs` |
-| Light client and MPC | Tested live with read-only calls, on testnet and mainnet |
 | NEAR Intents | Live `dry` quotes work. Intents has no testnet, so payouts on testnet stay on NEAR |
-| A full loan on real networks | **Not done yet** |
+| A loan with USDC on real networks | **Not done yet.** So far this has only run in the simulator |
+| The endowment on real networks | **Not done yet.** So far this has only run in the simulator |
 
 ## Why NEAR
 
