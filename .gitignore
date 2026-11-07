@@ -2,7 +2,8 @@ target/
 node_modules/
 dist/
 *.wasm
-!evidence/*.wasm
+# The compiled contracts are committed, so tests and the simulator run with no Rust.
+!contracts/wasm/*.wasm
 
 # Never commit keys, env files or local wallets.
 .env

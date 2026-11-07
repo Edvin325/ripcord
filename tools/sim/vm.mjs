@@ -67,6 +67,14 @@ export class SimChain {
     return this.accounts.get(id)?.balance ?? 0n;
   }
 
+  /** What an account's code and state lock up, at NEAR's rate of 10^19 yocto per byte. */
+  storageCost(id) {
+    const account = this.accounts.get(id);
+    let bytes = BigInt(account.codeLen);
+    for (const [k, v] of account.storage) bytes += BigInt(k.length + v.length + 40);
+    return bytes * 10n ** 19n;
+  }
+
   advance(seconds) {
     this.timeMs += seconds * 1000;
   }

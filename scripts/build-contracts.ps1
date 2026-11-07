@@ -16,5 +16,11 @@ foreach ($c in $Contracts) {
   Pop-Location
   Write-Output ("=== {0} exit={1} took {2}s ===" -f $c, $code, [int]((Get-Date) - $started).TotalSeconds)
 }
+# Committed copies, so tests and the simulator work from a fresh clone with no Rust.
+$out = Join-Path $root 'contracts\wasm'
+New-Item -ItemType Directory -Force $out | Out-Null
 Get-ChildItem (Join-Path $root 'target\near') -Recurse -Filter '*.wasm' -ErrorAction SilentlyContinue |
-  Select-Object FullName, Length, LastWriteTime | Format-Table -AutoSize -Wrap
+  ForEach-Object { Copy-Item $_.FullName $out -Force }
+Get-ChildItem $out -Filter '*.wasm' | ForEach-Object {
+  '{0}  {1}  {2}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Length, $_.Name
+}

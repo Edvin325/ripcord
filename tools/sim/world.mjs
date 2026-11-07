@@ -402,10 +402,6 @@ export function createWorld({ wasm, params = {}, vaultFee = NEAR / 10n, keeperBo
   near.mock(a.pool, pool.handlers);
   for (const id of [a.borrower, a.lender, a.bidder, a.keeper]) near.addAccount(id);
 
-  // The endowment starts with just its storage, reserve and keeper float, so anything it
-  // stakes in a run really did come from that run's fees and interest.
-  near.addAccount(a.endowment, (NEAR * 5n) / 2n);
-
   near.deploy(a.usdc, wasm.usdc);
   near.deploy(a.ripcord, wasm.ripcord);
   near.deploy(a.endowment, wasm.endowment);
@@ -447,6 +443,10 @@ export function createWorld({ wasm, params = {}, vaultFee = NEAR / 10n, keeperBo
   const storageDeposit = NEAR / 100n;
   must(near.call(a.ripcord, a.usdc, 'storage_deposit', {}, { deposit: storageDeposit }), 'register ripcord');
   must(near.call(a.endowment, a.usdc, 'storage_deposit', {}, { deposit: storageDeposit }), 'register endowment');
+
+  // The endowment starts with just its storage, reserve and keeper float, so anything it
+  // stakes in a run really did come from that run's fees and interest.
+  near.accounts.get(a.endowment).balance = near.storageCost(a.endowment) + NEAR / 2n + keeperFloat;
   for (const id of [a.borrower, a.lender, a.bidder]) {
     must(near.call(id, a.usdc, 'storage_deposit', {}, { deposit: storageDeposit }), `register ${id}`);
     must(near.call(id, a.usdc, 'faucet', { amount: (10_000n * USDC).toString() }), `fund ${id}`);
