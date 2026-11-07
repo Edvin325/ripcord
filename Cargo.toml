@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/near-btc-script",
+    "crates/ripcord-core",
+    "contracts/ripcord",
+    "contracts/endowment",
+    "contracts/test-usdc",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+near-sdk = "5.30.1"
+near-contract-standards = "5.30.1"
+near-btc-script = { path = "crates/near-btc-script" }
+ripcord-core = { path = "crates/ripcord-core" }
+
+# Contract builds: small wasm, and arithmetic overflow aborts instead of wrapping.
+[profile.release]
+codegen-units = 1
+opt-level = "z"
+lto = true
+debug = false
+panic = "abort"
+overflow-checks = true

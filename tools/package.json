@@ -1,0 +1,16 @@
+{
+  "name": "ripcord-tools",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Command-line tools for Ripcord: proofs, the keeper, the escape ticket and the on-chain verifier.",
+  "scripts": {
+    "fixtures": "node fixtures.mjs"
+  },
+  "dependencies": {
+    "bitcoinjs-lib": "^6.1.10",
+    "ecpair": "^2.1.0",
+    "near-api-js": "^6.0.0",
+    "tiny-secp256k1": "^2.2.5"
+  }
+}

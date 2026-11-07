@@ -1,0 +1,16 @@
+[package]
+name = "ripcord-endowment"
+description = "Stakes Ripcord's fees with NEAR validators and pays keepers from the rewards. It has no owner."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk.workspace = true
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = ['cfg(near)']

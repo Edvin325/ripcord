@@ -1,0 +1,15 @@
+[package]
+name = "near-btc-script"
+description = "Hold native Bitcoin under script rules from a NEAR contract: P2WSH vaults, BIP-143 sighashes, strict transaction parsing and signature encoding, with no bridge."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+keywords = ["near", "bitcoin", "chain-signatures", "p2wsh", "bip143"]
+categories = ["cryptography::cryptocurrencies"]
+
+# Deliberately no dependencies. Hashing is injected through the `Sha256` trait, so a
+# contract can use the cheap NEAR host function and tests can use a software hash.
+[dependencies]
+
+[dev-dependencies]
+sha2 = "0.10"

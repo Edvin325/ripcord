@@ -1,0 +1,8 @@
+[package]
+name = "ripcord-core"
+description = "Pure loan arithmetic and timelines for Ripcord. No chain access, so every rule can be tested alone."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]

@@ -1,0 +1,17 @@
+[package]
+name = "ripcord-test-usdc"
+description = "Testnet stand-in for USDC, with an open faucet. Never deployed to mainnet, where Ripcord uses real USDC."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk.workspace = true
+near-contract-standards.workspace = true
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = ['cfg(near)']

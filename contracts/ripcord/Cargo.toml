@@ -1,0 +1,19 @@
+[package]
+name = "ripcord"
+description = "Term loans against native Bitcoin. No bridge, no oracle, no liquidation, and a Bitcoin timelock that returns the coins if NEAR ever stops."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# `unstable` only exposes `env::ecrecover`, a host function that is stable in the protocol.
+near-sdk = { workspace = true, features = ["unstable"] }
+near-btc-script.workspace = true
+ripcord-core.workspace = true
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = ['cfg(near)']

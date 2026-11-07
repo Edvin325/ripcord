@@ -1,0 +1,16 @@
+target/
+node_modules/
+dist/
+*.wasm
+!evidence/*.wasm
+
+# Never commit keys, env files or local wallets.
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+credentials/
+.near-credentials/
+wallets/
+secrets/
