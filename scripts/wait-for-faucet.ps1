@@ -26,10 +26,11 @@ function Exists($id) {
 }
 
 $until = [DateTimeOffset]::Parse($ResetUtc).UtcDateTime
-$wait = ($until - (Get-Date).ToUniversalTime()).TotalSeconds
-if ($wait -gt 0) {
-  Say "waiting $([int]($wait / 60)) minutes for the faucet reset"
-  Start-Sleep -Seconds ([int]$wait)
+# Wait in short steps against the real clock. One long sleep stops counting while the laptop
+# sleeps, which once pushed the start back by many hours.
+if ((Get-Date).ToUniversalTime() -lt $until) {
+  Say "waiting for the faucet reset at $($until.ToString('u'))"
+  while ((Get-Date).ToUniversalTime() -lt $until) { Start-Sleep -Seconds 60 }
 }
 
 $giveUp = (Get-Date).AddHours($MaxHours)
