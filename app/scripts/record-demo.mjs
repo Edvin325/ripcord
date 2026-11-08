@@ -188,13 +188,17 @@ await caption('');
 // Borrow, with a live price from Intents.
 const deliver = page.getByLabel('Deliver the dollars to');
 await reveal(page.getByLabel('If you default, the auction opens at this price per BTC'), 160);
-await caption('You borrow dollars. NEAR Intents prices delivery to any chain. This is a live quote.', 700);
+await caption('You borrow dollars, and NEAR Intents can deliver them to another chain. This price is live.', 700);
 await liveQuote(deliver);
-await wait(3000);
-await press(button('Borrow', true));
-await notice('The Bitcoin has not moved');
+await page.getByLabel('Your address on Base').fill('0x2f3b1a3e7c1d9a8b6c5d4e3f2a1b0c9d8e7f6a5b');
+await wait(2600);
+await press(button('Borrow and send to Base'));
+await notice('NEAR Intents is taking the dollars to Base');
 await page.getByText('No price can touch this loan').first().waitFor();
-await wait(500);
+await reveal(page.locator('.money').first(), 120);
+await caption('The app shows where every dollar is. Here the delivery is simulated, because Intents has no testnet.');
+await page.locator('.transfer').filter({ hasText: 'Delivered on Base' }).first().waitFor({ timeout: 20000 });
+await wait(2600);
 await caption('');
 
 // The crash.

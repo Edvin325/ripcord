@@ -37,7 +37,7 @@ npm install
 npm test
 ```
 
-You see `tests 89`, `pass 89`. This runs the compiled contracts from `contracts/wasm` inside a small NEAR runtime, `tools/sim`. Its Bitcoin checks the vault's hash commitment, signatures, low-S rule and timelock, so a pass means a spend was accepted. A fresh build in `target/near` takes priority if there is one.
+You see `tests 99`, `pass 99`. This runs the compiled contracts from `contracts/wasm` inside a small NEAR runtime, `tools/sim`. Its Bitcoin checks the vault's hash commitment, signatures, low-S rule and timelock, so a pass means a spend was accepted. A fresh build in `target/near` takes priority if there is one.
 
 **2. Watch the whole story in a terminal.**
 
@@ -66,7 +66,10 @@ npm run dev
 Open http://localhost:4173. The Simulator runs the real contracts in your browser tab.
 
 - Click **Try to switch it off**, then **Pull the ripcord**. You see a loan open, a 50% crash change nothing, every dependency switch off, Bitcoin refuse the ticket, then accept it.
-- Click **Borrow**, then **Open vault**, and follow the steps. Pick Base under **Deliver the dollars to**, and you see a live NEAR Intents price.
+- Click **Borrow**, then **Open vault**, and follow the steps. Pick Base under **Deliver the dollars to** and enter a Base address. You see a live NEAR Intents price. Press **Borrow and send to Base**, and you see the transfer move through 1Click's statuses to **Delivered on Base**, with **Where your money is** saying where the dollars are at each step. Intents has no testnet, so the delivery is simulated and says so. The price is real.
+- Set **Intents** in the bottom bar to **Refunds** or **Fails** and borrow again. You see a refunded transfer put the dollars back in your NEAR account, and a failed one say what to keep.
+- Under the loan, pick Base under **Repay from**. You see a deposit address and the exact amount to send, then the dollars arrive on NEAR and you repay.
+- Click **History**. You see every step you took, newest first. On testnet each one links to a block explorer.
 - Press **Crash 50%** in the bottom bar during a loan. You see nothing happen to it.
 
 **5. Check the Bitcoin code against the spec.**
@@ -96,6 +99,15 @@ node mutation-check.mjs
 
 This undoes each security fix in turn, rebuilds the real contract and confirms the matching test goes red. You see `16 of 16 fixes are guarded`. The last run is in `evidence/mutation-check.json`.
 
+**8. Check the NEAR Intents code against the real 1Click API, with no money.**
+
+```bash
+cd tools
+node intents-check.mjs
+```
+
+You see the live token list confirm all four USDC routes, a dry quote, and two committed quotes: one gives a NEAR deposit address for a loan going out, one gives a Base deposit address for a repayment coming in. Both show `PENDING_DEPOSIT`. Nothing is ever sent to them. The last run is in `evidence/intents-api-check.json`.
+
 ## Proven on real networks
 
 These ran on NEAR testnet and Bitcoin testnet3, with the real MPC signers and the real light client. Every hash is in `evidence/`, so you can look each one up. They ran before the security fixes in `docs/THREAT-MODEL.md`. The Bitcoin script has not changed since, but the contracts have.
@@ -116,12 +128,27 @@ These ran on NEAR testnet and Bitcoin testnet3, with the real MPC signers and th
 | Part | State |
 | --- | --- |
 | Bitcoin library | Done. Tested against BIP vectors, real transactions and bitcoinjs-lib |
-| Contracts | Built. All 89 tests pass on the compiled wasm, and an AI review's findings are fixed |
+| Contracts | Built. All 99 tests pass on the compiled wasm, and an AI review's findings are fixed |
 | Vault, deposit proof, MPC signing, Bitcoin spend | **Done on real networks**, for both locks |
 | Web app | Works in the simulator. Checked in a real browser with `app/scripts/ui-check.mjs` |
-| NEAR Intents | Live `dry` quotes work in the app and the CLI. Real delivery is **not done**: Intents has no testnet, and this build is not on mainnet. `borrow` can pay a 1Click deposit address through `payout_to`, but the app does not request one yet |
+| NEAR Intents | Built: loans paid out to Base, Arbitrum, Solana or Ethereum, and repayments brought in from them, through the 1Click API, with every status shown, including refunds and failures. Checked against the real API with no money moved, and run end to end on the compiled contracts against a simulated 1Click. **Not yet run with real money**: Intents has no testnet, so that needs a mainnet run, which waits for approval (`tools/intents-payout.mjs`) |
 | A loan with USDC on real networks | **Not done yet.** So far this has only run in the simulator |
 | The endowment on real networks | **Not done yet.** So far this has only run in the simulator |
+
+## The DeFi track prompt, point by point
+
+The track's example prompt asks for these. Its starter idea is a DCA vault, so where Ripcord is a loan instead, the closest equivalent is given.
+
+| The prompt asks for | Where it is |
+| --- | --- |
+| No custodian, nobody who can switch it off | The coins stay in a Bitcoin script nobody holds, and lock 2 needs nothing but Bitcoin. Proven on real Bitcoin testnet |
+| The 1Click API for quotes, deposits and status tracking | `tools/lib/oneclick.mjs`, in the order the `near-intents` skill gives. Checked against the real API by `tools/intents-check.mjs` |
+| REFUNDED and FAILED shown in the UI | The transfer card and **Where your money is**, for every 1Click status. Set **Intents** to **Refunds** or **Fails** in the simulator to see them |
+| Show the user where their funds sit at every step | **Where your money is** on each vault: the Bitcoin, the borrowed dollars, the debt, and anything waiting in the contract |
+| A web UI with deposit, schedule and a history with explorer links | Deposit on each vault, a **Schedule** table of the blocks that matter, and **History**, with explorer links on testnet and mainnet |
+| A dry-run mode with real quotes and no funds | The simulator runs the real compiled contracts with live 1Click prices, and needs no wallet or funds |
+| Stretch: a NEAR contract owns the vault and controls a derived BTC address through Chain Signatures | That is Ripcord's core. Each vault's key is derived for the contract, and a real spend was signed on Bitcoin testnet |
+| Settle across chains through NEAR Intents | Built and tested as above. A real transfer with real money waits for a mainnet run |
 
 ## Why NEAR
 
@@ -131,7 +158,7 @@ One contract can verify Bitcoin history through the light client, sign real Bitc
 | --- | --- |
 | Chain Signatures | The contract signs each vault's Bitcoin spend. Each vault has its own derived key |
 | Bitcoin light client | Proves deposits. No relayer is trusted |
-| NEAR Intents | Prices payouts to any chain, repayments from any chain, and BTC sales. See Status for what is live |
+| NEAR Intents | Pays loans out to other chains and brings repayments in, through the 1Click API. See Status for what has run with real money |
 | Staking | The endowment stakes every fee with a validator |
 
 ## What NEAR gets
@@ -182,6 +209,10 @@ These use daily average prices, which hide intraday wicks, and past prices do no
 | `tools/keeper.mjs` | A permissionless keeper. Anyone can run one |
 | `tools/verify.mjs` | Checks a live deployment against this repository, with no key or wallet |
 | `tools/mutation-check.mjs` | Proves the tests can fail, by undoing each fix |
+| `tools/lib/oneclick.mjs` | The 1Click API: tokens, quotes, deposit notices, status, and plain words for each status |
+| `tools/sim/intents.mjs` | A simulated 1Click, so transfers can be tried and tested without a testnet |
+| `tools/intents-check.mjs` | Checks the Intents code against the real API, moving no money |
+| `tools/intents-payout.mjs` | A real mainnet transfer. Runs only with `--yes` and a human's approval |
 | `tools/escape.mjs` | Signs the owner's exit offline, with no network |
 | `app` | The web app |
 | `research` | The lender backtest, with its data |
@@ -190,5 +221,5 @@ These use daily average prices, which hide intraday wicks, and past prices do no
 
 - **All work is new**, started on 7 Nov 2026, inside the window.
 - **Libraries:** near-sdk, near-contract-standards, near-api-js, @noble/curves, @noble/hashes, bitcoinjs-lib, ecpair and tiny-secp256k1 (tests and the test wallet), preact, @preact/preset-vite, vite, @hot-labs/near-connect, playwright-core (browser check and video). Fonts: Barlow Condensed and IBM Plex through @fontsource, under the SIL Open Font License.
-- **AI tools:** written with Claude Code.
+- **AI tools:** written with Claude Code. The NEAR Intents code follows NEAR's `near-intents` agent skill from github.com/near/agent-skills, read as documentation.
 - **License:** MIT.

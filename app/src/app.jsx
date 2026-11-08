@@ -6,11 +6,13 @@ import { Ctx, go, num, plainError, useApp, useRoute } from './lib.js';
 import { Borrow, Auctions, Home, Lend, Near } from './pages.jsx';
 import { VaultPage } from './vault.jsx';
 import { SwitchOff } from './switchoff.jsx';
+import { HistoryPage } from './activity.jsx';
 
 const NAV = [
   ['borrow', 'Borrow'],
   ['lend', 'Lend'],
   ['auctions', 'Auctions'],
+  ['history', 'History'],
   ['switch', 'Try to switch it off'],
   ['near', 'What NEAR gets'],
 ];
@@ -108,6 +110,21 @@ function ControlTower() {
               {r.label}
             </option>
           ))}
+        </select>
+      </div>
+      <div class="tower-group">
+        <span class="tower-label">Intents</span>
+        <select
+          aria-label="What the simulated NEAR Intents does next"
+          value={backend.intents.state.outcome}
+          onChange={(e) => {
+            backend.setIntentsOutcome(e.currentTarget.value);
+            refresh();
+          }}
+        >
+          <option value="deliver">Delivers</option>
+          <option value="refund">Refunds</option>
+          <option value="fail">Fails</option>
         </select>
       </div>
       <div class="tower-group">
@@ -235,6 +252,7 @@ export function App() {
     borrow: <Borrow />,
     lend: <Lend />,
     auctions: <Auctions />,
+    history: <HistoryPage />,
     switch: <SwitchOff />,
     near: <Near />,
     vault: <VaultPage id={arg} />,

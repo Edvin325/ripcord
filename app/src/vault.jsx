@@ -10,7 +10,9 @@ import {
   vaultSpendVbytes,
 } from '@tools/lib/btc-core.mjs';
 import { btc, download, hoursFromBlocks, MICRO, num, percent, short, usd, useApp } from './lib.js';
-import { PayoutPicker, RepayPicker } from './intents.jsx';
+import { looksLikeAddress, USDC_ROUTES } from '@tools/lib/oneclick.mjs';
+import { ChainPicker, RepayFromChain, Schedule, TransfersFor, WhereMoney } from './transfers.jsx';
+import { VaultActivity } from './activity.jsx';
 import { Locks, offerRows, Stat, statusLabel, Step } from './pages.jsx';
 import { recall, remember } from './keys.js';
 
@@ -20,7 +22,8 @@ function Tape({ vault, tip, params }) {
   const auctionEnd = loan ? loan.grace_end_height + params.start_window_blocks + params.auction_blocks : null;
   const start = Math.min(tip, loan ? loan.due_height : tip) - Math.max(6, Math.round((escape - tip) * 0.05));
   const end = Math.max(escape, tip) + Math.max(6, Math.round((escape - start) * 0.12));
-  const at = (h) => `${Math.min(100, Math.max(0, ((h - start) / (end - start)) * 100))}%`;
+  const pos = (h) => Math.min(100, Math.max(0, ((h - start) / (end - start)) * 100));
+  const at = (h) => `${pos(h)}%`;
 
   const marks = [
     ...(loan
@@ -51,8 +54,12 @@ function Tape({ vault, tip, params }) {
         </div>
       </div>
       <div class="tape-marks">
-        {marks.map((m) => (
-          <div key={m.label} class={`mark ${m.strong ? 'strong' : ''}`} style={{ left: at(m.h) }}>
+        {marks.map((m, i) => (
+          <div
+            key={m.label}
+            class={`mark ${m.strong ? 'strong' : ''} ${i > 0 && pos(m.h) - pos(marks[i - 1].h) < 14 ? 'low' : ''}`}
+            style={{ left: at(m.h) }}
+          >
             <i />
             <b>{m.label}</b>
             <span class="mono">{num(m.h)}</span>
@@ -168,6 +175,9 @@ function BorrowPanel({ vault }) {
   const suggested = Math.round(reference * 3);
   const [openPrice, setOpenPrice] = useState('');
   const opening = openPrice === '' ? suggested : Number(openPrice);
+  const [dest, setDest] = useState({ routeId: 'near', recipient: '' });
+  const route = USDC_ROUTES.find((r) => r.id === dest.routeId);
+  const blocked = route && (backend.intentsMode === 'none' || !looksLikeAddress(route, dest.recipient));
 
   return (
     <Step n="4" title="Borrow">
@@ -204,24 +214,22 @@ function BorrowPanel({ vault }) {
           bitcoin could be worth by then. Too low could sell your coins cheaply. Far too high leaves bidders little
           time near the real price.
         </p>
-        <PayoutPicker micro={BigInt(Math.floor((dollarsWanted || 0) * MICRO))} />
+        <ChainPicker micro={BigInt(Math.floor((dollarsWanted || 0) * MICRO))} value={dest} onChange={setDest} />
         <button
-          disabled={busy || !offer}
+          disabled={busy || !offer || blocked}
           onClick={() =>
-            act(
-              () =>
-                backend.borrow({
-                  vaultId: vault.id,
-                  offerId: offer.id,
-                  principal: BigInt(Math.floor(dollarsWanted * MICRO)),
-                  auctionOpenPerBtc: BigInt(Math.round((opening || 0) * MICRO)),
-                  payoutTo: snap.account,
-                }),
-              'Dollars sent. The Bitcoin has not moved.',
-            )
+            act(() => {
+              const terms = {
+                vaultId: vault.id,
+                offerId: offer.id,
+                principal: BigInt(Math.floor(dollarsWanted * MICRO)),
+                auctionOpenPerBtc: BigInt(Math.round((opening || 0) * MICRO)),
+              };
+              return route ? backend.sendTo({ ...terms, route, recipient: dest.recipient }) : backend.borrow({ ...terms, payoutTo: snap.account });
+            }, route ? `Borrowed. NEAR Intents is taking the dollars to ${route.label}. The Bitcoin has not moved.` : 'Dollars sent. The Bitcoin has not moved.')
           }
         >
-          Borrow
+          {route ? `Borrow and send to ${route.label}` : 'Borrow'}
         </button>
       </div>
     </Step>
@@ -419,6 +427,9 @@ export function VaultPage({ id }) {
         <Stat label="Your exit" value={`Block ${num(vault.escape_height)}`} note={hoursFromBlocks(Math.max(0, vault.escape_height - snap.tip))} />
       </section>
 
+      <WhereMoney vault={vault} />
+      <TransfersFor vault={vault} />
+
       <Locks vault={vault} />
       {vault.status !== 'awaiting_deposit' && <ScriptCheck vault={vault} />}
 
@@ -462,7 +473,7 @@ export function VaultPage({ id }) {
             opening at {usd(vault.loan.auction_start)} and falling to your debt. You keep whatever it sells for above
             the debt.
           </p>
-          <RepayPicker micro={vault.loan.debt} />
+          <RepayFromChain vault={vault} />
           <button disabled={busy} onClick={() => act(() => backend.repay(vault), 'Repaid. Your Bitcoin is free again.')}>
             Repay {usd(vault.loan.debt)}
           </button>
@@ -477,7 +488,11 @@ export function VaultPage({ id }) {
 
       {vault.status === 'settling' && <Settling vault={vault} />}
 
+      {vault.status !== 'deriving' && <Schedule vault={vault} tip={snap.tip} params={params} />}
+
       {vault.deposit && vault.status !== 'settling' && isOwner && <EscapeTicket vault={vault} />}
+
+      <VaultActivity vault={vault} />
     </>
   );
 }

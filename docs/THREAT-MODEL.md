@@ -70,7 +70,9 @@ This is what Ripcord protects against, what it does not, and who carries each ri
 - The freshness check trusts the miner's timestamp, within Bitcoin's two-hour limit. The safety margin is sized to absorb that. The check assumes Bitcoin runs at no more than twice its usual speed, which holds on mainnet and not on testnet3.
 - The contract does not watch Bitcoin after signing, so `sats_locked` falls when a spend is signed, not when it confirms.
 - Interest is fixed at opening and is not reduced by early repayment.
-- Repaying through Intents is priced but not wired up. A 1Click delivery with `customRecipientMsg` arrives from `intents.near`, not the payer, and that feature is marked highly experimental, so a refused payment would need care. Direct repayment does not have this problem.
+- Sending a loan to another chain trusts NEAR Intents' 1Click service for that leg: the contract pays a 1Click deposit address, and 1Click delivers or refunds. A refund goes back to the borrower's own NEAR account. A failed transfer stays at the deposit address until 1Click resolves it. Borrowing to a NEAR account never touches 1Click.
+- Repaying from another chain takes two steps: NEAR Intents brings the dollars to the borrower's NEAR account, and the borrower then repays. It does not use `customRecipientMsg`, which is marked highly experimental and would deliver the payment from `intents.near` rather than the payer.
+- The app's Intents code has run against the real 1Click API with no money, and end to end only against a simulated 1Click. It has not moved real money yet.
 - `near-sandbox` does not run on Windows, so the integration tests use `tools/sim`, which runs the compiled contracts but does not meter gas. Gas is covered only by real network runs.
 
 ## How this was reviewed

@@ -1,0 +1,41 @@
+{
+    "read_at":  "2026-11-08T07:55:55.6327844Z",
+    "source":  "GET https://1click.chaindefuser.com/v0/tokens, USDC rows only",
+    "tokens":  [
+                   {
+                       "assetId":  "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+                       "decimals":  6,
+                       "blockchain":  "near",
+                       "symbol":  "USDC",
+                       "contractAddress":  "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1"
+                   },
+                   {
+                       "assetId":  "nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near",
+                       "decimals":  6,
+                       "blockchain":  "eth",
+                       "symbol":  "USDC",
+                       "contractAddress":  "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+                   },
+                   {
+                       "assetId":  "nep141:arb-0xaf88d065e77c8cc2239327c5edb3a432268e5831.omft.near",
+                       "decimals":  6,
+                       "blockchain":  "arb",
+                       "symbol":  "USDC",
+                       "contractAddress":  "0xaf88d065e77c8cc2239327c5edb3a432268e5831"
+                   },
+                   {
+                       "assetId":  "nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near",
+                       "decimals":  6,
+                       "blockchain":  "base",
+                       "symbol":  "USDC",
+                       "contractAddress":  "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
+                   },
+                   {
+                       "assetId":  "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+                       "decimals":  6,
+                       "blockchain":  "sol",
+                       "symbol":  "USDC",
+                       "contractAddress":  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+                   }
+               ]
+}

@@ -1,0 +1,52 @@
+{
+  "checked_at": "2026-11-08T08:11:47.215Z",
+  "note": "Run against the real 1Click API. No funds were sent to either deposit address, so both expire unused.",
+  "tokens_listed": 216,
+  "routes": [
+    {
+      "id": "base",
+      "label": "Base",
+      "asset": "nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near",
+      "listed": true
+    },
+    {
+      "id": "arb",
+      "label": "Arbitrum",
+      "asset": "nep141:arb-0xaf88d065e77c8cc2239327c5edb3a432268e5831.omft.near",
+      "listed": true
+    },
+    {
+      "id": "sol",
+      "label": "Solana",
+      "asset": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+      "listed": true
+    },
+    {
+      "id": "eth",
+      "label": "Ethereum",
+      "asset": "nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near",
+      "listed": true
+    }
+  ],
+  "dry_quote": {
+    "amount_in": "5000000",
+    "amount_out": "4996795",
+    "seconds": 22
+  },
+  "loan_out": {
+    "deposit_address": "30e3c007c076fa3f0999cde7d95f24d76b8db23ed19d7d511de36bc6d183cb02",
+    "is_near_implicit_account": true,
+    "amount_in": "5000000",
+    "amount_out": "4996795",
+    "deadline": "2026-11-11T08:21:44.399Z",
+    "status": "PENDING_DEPOSIT",
+    "shown_as": "Waiting for the dollars to reach NEAR Intents. Leaving the Ripcord contract for the NEAR Intents deposit address"
+  },
+  "repayment_in": {
+    "deposit_address": "0xF31c8200B20fD626f8883AcE4284FE6204F54c99",
+    "amount_to_send": "5025922",
+    "amount_arriving": "5000000",
+    "deadline": "2026-11-11T08:21:45.781Z",
+    "status": "PENDING_DEPOSIT"
+  }
+}

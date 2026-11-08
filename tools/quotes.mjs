@@ -33,7 +33,7 @@ for (const route of USDC_ROUTES) {
 
 console.log('\nRepayment: exact USDC on NEAR, paid from elsewhere');
 for (const route of USDC_ROUTES) {
-  await attempt(`  from ${route.label}`, () => repayQuote(route, DEBT, CONTRACT, 7));
+  await attempt(`  from ${route.label}`, () => repayQuote(route, DEBT, CONTRACT));
 }
 
 console.log('\nCollateral: native Bitcoin sold for USDC on NEAR');

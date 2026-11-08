@@ -1,8 +1,15 @@
 // The live backend: NEAR testnet or mainnet, Bitcoin through a public API, and a real
 // wallet. It exposes the same methods as the simulator, so every page works on both.
+//
+// NEAR Intents has no testnet. On testnet this backend shows live prices and says plainly
+// that a transfer needs mainnet. On mainnet it follows the near-intents skill: a committed
+// quote, the deposit address registered with the token, the loan paid straight into it, the
+// deposit reported, and the status followed to the end.
 
 import { NearConnector } from '@hot-labs/near-connect';
 import { addressToScript, bytesToHex, encodeSegwit, hexToBytes, merkleProof, p2wshScriptPubkey } from '@tools/lib/btc-core.mjs';
+import { deliveryQuote, inboundQuote, status as transferStatus, submitDeposit } from '@tools/lib/oneclick.mjs';
+import { record, saveTransfer } from '../history.js';
 
 const RPC = {
   testnet: ['https://test.rpc.fastnear.com', 'https://rpc.testnet.near.org'],
@@ -14,7 +21,11 @@ const BTC = {
   mainnet: { api: 'https://mempool.space/api', site: 'https://mempool.space' },
 };
 
+const NEAR_EXPLORER = { testnet: 'https://testnet.nearblocks.io', mainnet: 'https://nearblocks.io' };
+
 const TGAS = 10n ** 12n;
+/** What NEP-145 asks to register an account with a token. Any excess is refunded. */
+const REGISTRATION = 1_250_000_000_000_000_000_000n;
 const toBase64 = (text) => btoa(String.fromCharCode(...new TextEncoder().encode(text)));
 
 async function btcFetch(base, path, init) {
@@ -22,6 +33,11 @@ async function btcFetch(base, path, init) {
   if (!res.ok) throw new Error((await res.text()).slice(0, 200));
   return (await res.text()).trim();
 }
+
+const call = (methodName, args, deposit, tgas) => ({
+  type: 'FunctionCall',
+  params: { methodName, args, gas: (BigInt(tgas) * TGAS).toString(), deposit: deposit.toString() },
+});
 
 export class LiveBackend {
   kind = 'live';
@@ -32,6 +48,7 @@ export class LiveBackend {
     this.label = deployment.network === 'mainnet' ? 'Mainnet' : 'Testnet';
     this.hrp = deployment.network === 'mainnet' ? 'bc' : 'tb';
     this.btc = BTC[deployment.btcNetwork];
+    this.intentsMode = deployment.network === 'mainnet' ? 'real' : 'none';
     this.connected = null;
     this.connector = new NearConnector({ network: deployment.network });
     this.connector.on('wallet:signIn', (t) => {
@@ -58,6 +75,19 @@ export class LiveBackend {
 
   btcAddressOfRole() {
     return '';
+  }
+
+  nearTxUrl(hash) {
+    return hash ? `${NEAR_EXPLORER[this.d.network]}/txns/${hash}` : null;
+  }
+
+  /** Adds a step to this browser's history once it went through, with its explorer link. */
+  note(r, action, extra = {}) {
+    if (r && r.ok !== false) {
+      const links = r.hash ? [{ label: 'NEAR transaction', url: this.nearTxUrl(r.hash) }] : [];
+      record(this.kind, { action, links, ...extra });
+    }
+    return r;
   }
 
   // ---- Reads ----
@@ -107,19 +137,18 @@ export class LiveBackend {
   async snapshot() {
     const d = this.d;
     const account = this.connected;
-    const [lightClientTip, tip, config, stats, endowment, vaults, offers, usdcBalance, withdrawable, saleRate] =
-      await Promise.all([
-        this.view(d.btcClient, 'get_last_block_height'),
-        btcFetch(this.btc.api, '/blocks/tip/height').then(Number),
-        this.view(d.ripcord, 'get_config'),
-        this.view(d.ripcord, 'get_stats'),
-        this.view(d.endowment, 'get_stats'),
-        this.listAll(d.ripcord, 'list_vaults'),
-        this.listAll(d.ripcord, 'list_offers'),
-        account ? this.view(d.usdc, 'ft_balance_of', { account_id: account }) : '0',
-        account ? this.view(d.ripcord, 'get_balance', { account_id: account }) : '0',
-        this.view(d.endowment, 'current_rate'),
-      ]);
+    const [lightClientTip, tip, config, stats, endowment, vaults, offers, usdcBalance, withdrawable, saleRate] = await Promise.all([
+      this.view(d.btcClient, 'get_last_block_height'),
+      btcFetch(this.btc.api, '/blocks/tip/height').then(Number),
+      this.view(d.ripcord, 'get_config'),
+      this.view(d.ripcord, 'get_stats'),
+      this.view(d.endowment, 'get_stats'),
+      this.listAll(d.ripcord, 'list_vaults'),
+      this.listAll(d.ripcord, 'list_offers'),
+      account ? this.view(d.usdc, 'ft_balance_of', { account_id: account }) : '0',
+      account ? this.view(d.ripcord, 'get_balance', { account_id: account }) : '0',
+      this.view(d.endowment, 'current_rate'),
+    ]);
     return {
       tip,
       lightClientTip,
@@ -179,12 +208,7 @@ export class LiveBackend {
       const wallet = await this.connector.wallet();
       const outcome = await wallet.signAndSendTransaction({
         receiverId: contractId,
-        actions: [
-          {
-            type: 'FunctionCall',
-            params: { methodName, args, gas: (tgas * TGAS).toString(), deposit: deposit.toString() },
-          },
-        ],
+        actions: [call(methodName, args, deposit, tgas)],
       });
       return this.readOutcome(outcome);
     } catch (e) {
@@ -199,45 +223,37 @@ export class LiveBackend {
     return {
       ok: failures.length === 0,
       error: failures[0] ? JSON.stringify(failures[0]) : null,
-      events: logs
-        .filter((l) => l.startsWith('EVENT_JSON:'))
-        .map((l) => JSON.parse(l.slice('EVENT_JSON:'.length))),
+      events: logs.filter((l) => l.startsWith('EVENT_JSON:')).map((l) => JSON.parse(l.slice('EVENT_JSON:'.length))),
       hash: outcome?.transaction?.hash,
     };
   }
 
   tokenCall(amount, msg) {
-    return this.send(
-      this.d.usdc,
-      'ft_transfer_call',
-      { receiver_id: this.d.ripcord, amount: amount.toString(), msg: JSON.stringify(msg) },
-      1n,
-    );
+    return this.send(this.d.usdc, 'ft_transfer_call', { receiver_id: this.d.ripcord, amount: amount.toString(), msg: JSON.stringify(msg) }, 1n);
   }
 
   // ---- Contract actions ----
 
   async openVault({ ownerPubkey, escapeHeight, expectedSats }) {
     const c = await this.view(this.d.ripcord, 'get_config');
-    return this.send(
+    const r = await this.send(
       this.d.ripcord,
       'open_vault',
       { owner_pubkey: ownerPubkey, escape_height: escapeHeight, expected_sats: String(expectedSats) },
       BigInt(c.vault_fee) + BigInt(c.vault_storage),
     );
+    const id = r.events?.find((e) => e.event === 'vault_opened')?.data[0].vault_id;
+    return this.note(r, 'Opened a vault', { vault: id === undefined ? undefined : String(id) });
   }
 
   async proveDeposit(vault) {
     const coin = await this.findDeposit(vault);
     if (!coin?.status?.confirmed) return { ok: false, error: 'No confirmed deposit yet.' };
     const hash = coin.status.block_hash;
-    const [raw, txidsText] = await Promise.all([
-      btcFetch(this.btc.api, `/tx/${coin.txid}/hex`),
-      btcFetch(this.btc.api, `/block/${hash}/txids`),
-    ]);
+    const [raw, txidsText] = await Promise.all([btcFetch(this.btc.api, `/tx/${coin.txid}/hex`), btcFetch(this.btc.api, `/block/${hash}/txids`)]);
     const txids = JSON.parse(txidsText);
     const index = txids.indexOf(coin.txid);
-    return this.send(this.d.ripcord, 'prove_deposit', {
+    const r = await this.send(this.d.ripcord, 'prove_deposit', {
       vault_id: vault.id,
       raw_tx: raw,
       vout: coin.vout,
@@ -249,64 +265,143 @@ export class LiveBackend {
         coinbase_merkle_proof: merkleProof(txids, 0).proof,
       },
     });
-  }
-
-  borrow({ vaultId, offerId, principal, auctionOpenPerBtc, payoutTo }) {
-    return this.send(
-      this.d.ripcord,
-      'borrow',
-      {
-        vault_id: vaultId,
-        offer_id: offerId,
-        principal: principal.toString(),
-        auction_open_per_btc: auctionOpenPerBtc.toString(),
-        payout_to: payoutTo ?? null,
-      },
-      1n,
-    );
-  }
-
-  repay(vault) {
-    return this.tokenCall(BigInt(vault.loan.debt), { repay: { vault_id: vault.id } });
-  }
-
-  release(vaultId, destination) {
-    return this.send(this.d.ripcord, 'release', { vault_id: vaultId, destination }, 1n);
-  }
-
-  requestSignature(vaultId, feeSats) {
-    return this.send(this.d.ripcord, 'request_signature', { vault_id: vaultId, fee_sats: String(feeSats) }, 1n);
-  }
-
-  startAuction(vaultId) {
-    return this.send(this.d.ripcord, 'start_auction', { vault_id: vaultId });
-  }
-
-  bid(vaultId, amount, btcScript) {
-    return this.tokenCall(amount, { bid: { vault_id: vaultId, btc_script: btcScript } });
-  }
-
-  claim(vaultId) {
-    return this.send(this.d.ripcord, 'claim_collateral', { vault_id: vaultId });
-  }
-
-  makeOffer({ amount, microUsdcPerBtc, aprBps, termBlocks, btcScript }) {
-    return this.tokenCall(amount, {
-      offer: {
-        micro_usdc_per_btc: microUsdcPerBtc.toString(),
-        apr_bps: aprBps,
-        term_blocks: termBlocks,
-        btc_script: btcScript,
-      },
+    if (r.ok) r.btcLink = { label: 'Bitcoin deposit', url: this.explorerTx(coin.txid) };
+    return this.note(r, 'Proved the deposit through the Bitcoin light client', {
+      vault: vault.id,
+      links: [r.hash && { label: 'NEAR transaction', url: this.nearTxUrl(r.hash) }, { label: 'Bitcoin deposit', url: this.explorerTx(coin.txid) }].filter(Boolean),
     });
   }
 
-  cancelOffer(offerId) {
-    return this.send(this.d.ripcord, 'cancel_offer', { offer_id: offerId }, 1n);
+  borrowArgs({ vaultId, offerId, principal, auctionOpenPerBtc }, payoutTo) {
+    return {
+      vault_id: vaultId,
+      offer_id: offerId,
+      principal: principal.toString(),
+      auction_open_per_btc: auctionOpenPerBtc.toString(),
+      payout_to: payoutTo ?? null,
+    };
   }
 
-  withdraw() {
-    return this.send(this.d.ripcord, 'withdraw', {}, 1n);
+  async borrow(args) {
+    const r = await this.send(this.d.ripcord, 'borrow', this.borrowArgs(args, args.payoutTo), 1n);
+    return this.note(r, 'Borrowed, paid to this NEAR account', { vault: args.vaultId, amount: args.principal.toString() });
+  }
+
+  /** Borrows straight into a NEAR Intents deposit address, so the dollars land on `route`. */
+  async sendTo({ route, recipient, ...args }) {
+    if (this.intentsMode !== 'real') {
+      return { ok: false, error: 'NEAR Intents has no testnet. Borrow to your NEAR account here, or try a delivery in the simulator.' };
+    }
+    if (!this.connected) return { ok: false, error: 'Connect a wallet first.' };
+    try {
+      const q = await deliveryQuote({ route, microUsdc: args.principal, recipient, refundTo: this.connected });
+      const depositAddress = q.quote.depositAddress;
+      const wallet = await this.connector.wallet();
+      // One approval, two transactions: register the deposit address with the token, then
+      // borrow into it. Without the first, the token would refuse to pay a new account.
+      const outcomes = await wallet.signAndSendTransactions({
+        transactions: [
+          { receiverId: this.d.usdc, actions: [call('storage_deposit', { account_id: depositAddress, registration_only: true }, REGISTRATION, 30)] },
+          { receiverId: this.d.ripcord, actions: [call('borrow', this.borrowArgs(args, depositAddress), 1n, 300)] },
+        ],
+      });
+      const r = this.readOutcome(outcomes.at(-1));
+      if (!r.ok) return r;
+      await submitDeposit({ txHash: r.hash, depositAddress, nearSenderAccount: this.d.ripcord }).catch(() => {});
+      const transfer = {
+        depositAddress,
+        direction: 'out',
+        routeId: route.id,
+        chain: route.label,
+        recipient,
+        refundTo: this.connected,
+        vaultId: args.vaultId,
+        amountIn: q.quote.amountIn,
+        amountOut: q.quote.amountOut,
+        deadline: q.quote.deadline,
+        simulated: false,
+      };
+      saveTransfer(this.kind, transfer);
+      this.note(r, `Borrowed, sent to ${route.label} through NEAR Intents`, { vault: args.vaultId, amount: args.principal.toString() });
+      return { ...r, transfer };
+    } catch (e) {
+      return { ok: false, error: e.message ?? String(e) };
+    }
+  }
+
+  /** A deposit address on `route` that brings exactly `microUsdc` to this NEAR account. */
+  async receiveFrom({ vaultId, route, microUsdc, refundTo }) {
+    if (this.intentsMode !== 'real') {
+      return { ok: false, error: 'NEAR Intents has no testnet. Repay directly on NEAR here.' };
+    }
+    if (!this.connected) return { ok: false, error: 'Connect a wallet first.' };
+    const q = await inboundQuote({ route, microUsdc, recipient: this.connected, refundTo });
+    const transfer = {
+      depositAddress: q.quote.depositAddress,
+      direction: 'in',
+      routeId: route.id,
+      chain: route.label,
+      recipient: this.connected,
+      refundTo,
+      vaultId,
+      amountIn: q.quote.amountIn,
+      amountOut: q.quote.amountOut,
+      deadline: q.quote.deadline,
+      simulated: false,
+    };
+    saveTransfer(this.kind, transfer);
+    record(this.kind, { action: `Asked NEAR Intents for a deposit address on ${route.label}`, vault: vaultId, amount: microUsdc.toString(), links: [] });
+    return { ok: true, transfer };
+  }
+
+  transferStatus(transfer) {
+    return transferStatus(transfer.depositAddress);
+  }
+
+  async repay(vault) {
+    return this.note(await this.tokenCall(BigInt(vault.loan.debt), { repay: { vault_id: vault.id } }), 'Repaid the loan', {
+      vault: vault.id,
+      amount: vault.loan.debt,
+    });
+  }
+
+  async release(vaultId, destination) {
+    return this.note(await this.send(this.d.ripcord, 'release', { vault_id: vaultId, destination }, 1n), 'Released the Bitcoin', { vault: vaultId });
+  }
+
+  async requestSignature(vaultId, feeSats) {
+    const r = await this.send(this.d.ripcord, 'request_signature', { vault_id: vaultId, fee_sats: String(feeSats) }, 1n);
+    return this.note(r, "NEAR's signers signed the Bitcoin spend", { vault: vaultId });
+  }
+
+  async startAuction(vaultId) {
+    return this.note(await this.send(this.d.ripcord, 'start_auction', { vault_id: vaultId }), 'Started the auction', { vault: vaultId });
+  }
+
+  async bid(vaultId, amount, btcScript) {
+    return this.note(await this.tokenCall(amount, { bid: { vault_id: vaultId, btc_script: btcScript } }), 'Bought the coins at auction', {
+      vault: vaultId,
+      amount: amount.toString(),
+    });
+  }
+
+  async claim(vaultId) {
+    return this.note(await this.send(this.d.ripcord, 'claim_collateral', { vault_id: vaultId }), 'The coins went to the lender', { vault: vaultId });
+  }
+
+  async makeOffer({ amount, microUsdcPerBtc, aprBps, termBlocks, btcScript }) {
+    const r = await this.tokenCall(amount, {
+      offer: { micro_usdc_per_btc: microUsdcPerBtc.toString(), apr_bps: aprBps, term_blocks: termBlocks, btc_script: btcScript },
+    });
+    return this.note(r, 'Made a lending offer', { amount: amount.toString() });
+  }
+
+  async cancelOffer(offerId) {
+    return this.note(await this.send(this.d.ripcord, 'cancel_offer', { offer_id: offerId }, 1n), 'Closed a lending offer');
+  }
+
+  async withdraw() {
+    return this.note(await this.send(this.d.ripcord, 'withdraw', {}, 1n), 'Withdrew dollars from the contract');
   }
 
   // The endowment's upkeep. Every one of these is open to anyone.
@@ -332,6 +427,7 @@ export class LiveBackend {
   async broadcast(rawHex) {
     try {
       const txid = await btcFetch(this.btc.api, '/tx', { method: 'POST', body: rawHex });
+      record(this.kind, { action: 'Bitcoin accepted a transaction', links: [{ label: 'Bitcoin transaction', url: this.explorerTx(txid) }] });
       return { ok: true, txid };
     } catch (e) {
       return { ok: false, error: e.message };
@@ -340,6 +436,10 @@ export class LiveBackend {
 
   explorerTx(txid) {
     return `${this.btc.site}/tx/${txid}`;
+  }
+
+  btcAddressUrl(address) {
+    return address ? `${this.btc.site}/address/${address}` : null;
   }
 
   scriptOf(address) {

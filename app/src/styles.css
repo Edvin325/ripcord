@@ -584,7 +584,7 @@ table {
 /* The block tape */
 
 .tape {
-  margin: 1.2rem 0 3.2rem;
+  margin: 1.2rem 0 1.6rem;
 }
 
 .tape-track {
@@ -632,7 +632,7 @@ table {
 
 .tape-marks {
   position: relative;
-  height: 3rem;
+  height: 5.4rem;
 }
 
 .mark {
@@ -659,6 +659,10 @@ table {
 
 .mark.strong b {
   color: var(--signal);
+}
+
+.mark.low i {
+  height: 2.4rem;
 }
 
 /* Sections with a heavy rule */
@@ -961,6 +965,166 @@ table {
 
   .mark {
     font-size: 0.62rem;
+  }
+}
+
+/* NEAR Intents transfers */
+
+.transfer {
+  border: 2px solid var(--rule);
+  background: var(--card);
+  padding: 1rem 1.1rem;
+  margin: 1.2rem 0;
+  display: grid;
+  gap: 0.6rem;
+  max-width: 46rem;
+  min-width: 0;
+}
+
+.transfer.good {
+  border-color: var(--go);
+}
+
+.transfer.bad {
+  border-color: var(--signal);
+}
+
+.transfer h3 {
+  margin: 0;
+}
+
+.transfer-steps {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.transfer-steps li {
+  position: relative;
+  padding-left: 1.7rem;
+  color: var(--ink-3);
+}
+
+.transfer-steps li::before {
+  content: '';
+  position: absolute;
+  left: 0.2rem;
+  top: 0.4em;
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 50%;
+  border: 2px solid var(--ink-3);
+  box-sizing: border-box;
+}
+
+.transfer-steps li.is-done {
+  color: var(--ink);
+}
+
+.transfer-steps li.is-done::before,
+.transfer-steps li.is-good::before {
+  background: var(--go);
+  border-color: var(--go);
+}
+
+.transfer-steps li.is-now {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.transfer-steps li.is-now::before {
+  border-color: var(--signal);
+  background: var(--zone-sale);
+}
+
+.transfer-steps li.is-bad {
+  color: var(--signal);
+  font-weight: 600;
+}
+
+.transfer-steps li.is-bad::before {
+  background: var(--signal);
+  border-color: var(--signal);
+}
+
+.where {
+  margin: 0;
+}
+
+.passive {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.7rem 0.8rem;
+  background: var(--paper-2);
+}
+
+.passive p {
+  margin: 0;
+}
+
+.copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.copy code {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1rem;
+  margin: 0;
+}
+
+/* Where the money is */
+
+.money {
+  margin: 1.6rem 0;
+}
+
+.money dl {
+  margin: 0;
+  border-top: 2px solid var(--rule);
+}
+
+.money dl > div {
+  display: grid;
+  grid-template-columns: minmax(8rem, 12rem) minmax(0, 1fr);
+  gap: 0.2rem 1rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--hair);
+}
+
+.money dt {
+  font-weight: 600;
+}
+
+.money dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.link-chip {
+  margin-right: 0.7rem;
+  white-space: nowrap;
+}
+
+@media (max-width: 560px) {
+  .money dl > div {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

@@ -27,6 +27,9 @@ const step = (text) => console.log(`- ${text}`);
 const click = (name) => page.getByRole('button', { name, exact: false }).first().click();
 const visible = (text) => page.getByText(text, { exact: false }).first().waitFor({ timeout: 8000 });
 
+const BASE_WALLET = '0x2f3b1a3e7c1d9a8b6c5d4e3f2a1b0c9d8e7f6a5b';
+const transfer = (text) => page.locator('.transfer').filter({ hasText: text }).first().waitFor({ timeout: 20000 });
+
 async function notice(text) {
   await page.locator('.notice').filter({ hasText: text }).first().waitFor({ timeout: 8000 });
 }
@@ -73,14 +76,18 @@ const quoted = await page
   .first()
   .textContent({ timeout: 15000 });
 step(`intents says: ${quoted}`);
+await page.getByLabel('Your address on Base').fill(BASE_WALLET);
 await shot('05b-live-quote');
-await page.getByLabel('Deliver the dollars to').selectOption('near');
 
-await page.getByRole('button', { name: 'Borrow', exact: true }).click();
-await notice('The Bitcoin has not moved');
+// Borrow straight into a NEAR Intents deposit address. The simulated 1Click moves through
+// the real statuses until the dollars are delivered on Base.
+await page.getByRole('button', { name: 'Borrow and send to Base' }).click();
+await notice('NEAR Intents is taking the dollars to Base');
 await visible('No price can touch this loan');
+await transfer('Delivered on Base');
+await visible('Where your money is');
 await shot('06-vault-borrowed');
-step('borrowed');
+step('borrowed, and the simulated NEAR Intents delivered the dollars on Base');
 
 // A crash does nothing.
 await click('Crash 50%');
@@ -94,6 +101,17 @@ await click('Try it now');
 await notice('Bitcoin refused it');
 await shot('07-ticket-refused');
 step('Bitcoin refused the ticket early');
+
+// Bring the repayment from another chain, then repay on NEAR.
+await page.getByLabel('Repay from').selectOption('base');
+await page.getByLabel(/Your address on Base, for a refund/).fill(BASE_WALLET);
+await click('Get a deposit address on Base');
+await notice('Deposit address ready');
+await visible('Send exactly');
+await click('Pay from the simulated Base wallet');
+await transfer('Delivered on NEAR');
+await shot('07b-repay-from-base');
+step('dollars brought from Base arrived on NEAR');
 
 // Repay and take the coins back through the contract path.
 await page.locator('button', { hasText: /^Repay/ }).click();
@@ -115,8 +133,17 @@ await click('Send from the simulated wallet');
 await notice('confirmed');
 await click('Submit proof');
 await notice('Deposit proven');
-await page.getByRole('button', { name: 'Borrow', exact: true }).click();
-await notice('The Bitcoin has not moved');
+// This time NEAR Intents refunds the delivery, and the page says where the money went.
+await page.getByLabel('What the simulated NEAR Intents does next').selectOption('refund');
+await page.getByLabel('Deliver the dollars to').selectOption('base');
+await page.getByLabel('Your address on Base').fill(BASE_WALLET);
+await page.getByRole('button', { name: 'Borrow and send to Base' }).click();
+await notice('NEAR Intents is taking the dollars to Base');
+await transfer('Refunded');
+await visible('Back in borrower.test on NEAR');
+await shot('08b-refunded');
+step('a refunded delivery is shown, with the money back on NEAR');
+await page.getByLabel('What the simulated NEAR Intents does next').selectOption('deliver');
 for (let i = 0; i < 4; i++) await click('Mine 10');
 await page.goto(`${base}#/auctions`);
 await click('Start auction');
@@ -128,6 +155,34 @@ await shot('09-auction');
 await click('Buy at this price');
 await notice('You won');
 step('default went to auction and sold');
+
+// A failed delivery, shown as such.
+await page.getByLabel('Act as').selectOption({ label: 'Borrower' });
+await page.getByLabel('What the simulated NEAR Intents does next').selectOption('fail');
+await page.goto(`${base}#/borrow`);
+await click('Open vault');
+await notice('Vault opened');
+await click('Send from the simulated wallet');
+await notice('confirmed');
+await click('Submit proof');
+await notice('Deposit proven');
+await page.getByLabel('Deliver the dollars to').selectOption('base');
+await page.getByLabel('Your address on Base').fill(BASE_WALLET);
+await page.getByRole('button', { name: 'Borrow and send to Base' }).click();
+await transfer('The transfer failed');
+await visible('Keep the address below');
+await shot('09b-failed');
+step('a failed delivery is shown, with what to keep');
+await page.getByLabel('What the simulated NEAR Intents does next').selectOption('deliver');
+
+// Every step, with a link where there is something real to look up.
+await page.goto(`${base}#/history`);
+await visible('What happened, step by step');
+for (const text of ['Borrowed, sent to Base through NEAR Intents', 'Delivered on Base (simulated)', 'Refunded (simulated)', 'The transfer failed (simulated)', 'Repaid the loan']) {
+  await visible(text);
+}
+await shot('10b-history');
+step('the history lists every step');
 
 await page.goto(`${base}#/lend`);
 await visible('Lend dollars against native Bitcoin');

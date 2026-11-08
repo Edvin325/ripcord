@@ -29,6 +29,8 @@ A contract can now read those chains through the same network that signs for it,
 ## 1Click
 
 - A quote naming a NEAR account that does not exist fails with `Internal server error`, the same words as a real outage. A clearer message would save time.
+- A committed quote (`dry: false`) with `refundTo: "wrap.near"` fails with only `Failed to get quote`, while the same dry quote succeeds. Changing just `refundTo` to another account made it work. A builder who tests with dry quotes alone will not find this until real use.
+- For USDC leaving NEAR, the deposit address is a 64-character implicit account. A contract can pay it directly with `ft_transfer`, once the address is registered with the token.
 - Burn addresses are refused with `recipient is not valid`, which is sensible.
 - CORS is open, so a static page can fetch live quotes with no server. That is very useful for apps with no backend.
 - `customRecipientMsg` makes one-deposit repayment to a contract possible, and is marked highly experimental. A stable version would let contracts accept any-chain payments directly.

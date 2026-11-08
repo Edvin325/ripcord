@@ -1,10 +1,14 @@
 // The simulator backend. It runs the real compiled contracts in this browser tab, against
 // a Bitcoin that enforces the vault's signature and timelock rules. No wallet, no tokens
 // and no network, so anyone can run a whole loan, then switch things off and see what
-// still works.
+// still works. NEAR Intents has no testnet, so its 1Click service is simulated too, behind
+// the same request code the live backend uses.
 
-import { ACCOUNTS, createWorld, USDC } from '@tools/sim/world.mjs';
+import { ACCOUNTS, createWorld, NEAR, USDC } from '@tools/sim/world.mjs';
+import { simFetch, simIntents } from '@tools/sim/intents.mjs';
+import { deliveryQuote, inboundQuote, status as transferStatus } from '@tools/lib/oneclick.mjs';
 import { addressToScript, bytesToHex, encodeSegwit, hexToBytes, p2wshScriptPubkey } from '@tools/lib/btc-core.mjs';
+import { forget, record, saveTransfer } from '../history.js';
 
 const A = ACCOUNTS;
 
@@ -21,6 +25,9 @@ const PARAMS = {
   max_tip_age_seconds: 1_800,
 };
 
+/** What registering a deposit address with the token costs. Anything unused comes back. */
+const REGISTRATION = NEAR / 100n;
+
 /** Named test addresses, so the Bitcoin side reads like people rather than hashes. */
 const addressFor = (byte) => encodeSegwit('tb', 0, new Uint8Array(20).fill(byte));
 
@@ -34,11 +41,7 @@ export const ROLES = [
 async function loadContracts() {
   const url = (name) => new URL(`wasm/${name}.wasm`, document.baseURI);
   const get = async (name) => new Uint8Array(await (await fetch(url(name))).arrayBuffer());
-  const [ripcord, endowment, usdc] = await Promise.all([
-    get('ripcord'),
-    get('ripcord_endowment'),
-    get('ripcord_test_usdc'),
-  ]);
+  const [ripcord, endowment, usdc] = await Promise.all([get('ripcord'), get('ripcord_endowment'), get('ripcord_test_usdc')]);
   return { ripcord, endowment, usdc };
 }
 
@@ -49,6 +52,7 @@ export class SimBackend {
   label = 'Simulator';
   hrp = 'tb';
   usesWallet = false;
+  intentsMode = 'simulated';
 
   constructor(wasm) {
     this.wasm = wasm;
@@ -63,10 +67,13 @@ export class SimBackend {
   reset() {
     const w = createWorld({ wasm: this.wasm, params: PARAMS });
     this.w = w;
+    this.intents = simIntents(w);
+    this.oneClick = { fetchImpl: simFetch(this.intents) };
+    forget(this.kind);
     this.role = A.borrower;
     this.killed = { website: false, relayer: false, oneclick: false, oracle: false, mpc: false, near: false };
     this.btcPrice = 76_000;
-    this.history = [];
+    this.coins = {};
 
     // Two offers on the book, so a visitor has something to borrow against.
     w.near.call(A.lender, A.usdc, 'faucet', { amount: (10_000n * USDC).toString() });
@@ -76,18 +83,15 @@ export class SimBackend {
 
   seedOffer(dollars, pricePerBtc, aprBps, termBlocks) {
     const script = bytesToHex(addressToScript('tb', addressFor(0x1e)));
-    this.tokenCall(
-      A.lender,
-      dollars * USDC,
-      {
-        offer: {
-          micro_usdc_per_btc: (pricePerBtc * USDC).toString(),
-          apr_bps: aprBps,
-          term_blocks: termBlocks,
-          btc_script: script,
-        },
-      },
-    );
+    this.tokenCall(A.lender, dollars * USDC, {
+      offer: { micro_usdc_per_btc: (pricePerBtc * USDC).toString(), apr_bps: aprBps, term_blocks: termBlocks, btc_script: script },
+    });
+  }
+
+  /** Adds a step to this browser's history once it went through. Nothing here has a link. */
+  note(r, action, extra = {}) {
+    if (r && r.ok !== false) record(this.kind, { action, simulated: true, ...extra });
+    return r;
   }
 
   // ---- Identity ----
@@ -148,13 +152,7 @@ export class SimBackend {
   tokenCall(sender, amount, msg) {
     if (this.killed.near) return DOWN;
     const before = BigInt(this.w.near.view(A.usdc, 'ft_balance_of', { account_id: sender }));
-    const r = this.w.near.call(
-      sender,
-      A.usdc,
-      'ft_transfer_call',
-      { receiver_id: A.ripcord, amount: amount.toString(), msg: JSON.stringify(msg) },
-      { deposit: 1n },
-    );
+    const r = this.w.near.call(sender, A.usdc, 'ft_transfer_call', { receiver_id: A.ripcord, amount: amount.toString(), msg: JSON.stringify(msg) }, { deposit: 1n });
     const after = BigInt(this.w.near.view(A.usdc, 'ft_balance_of', { account_id: sender }));
     // The token refunds a refused action, so a transfer that changed nothing did nothing.
     const moved = before !== after;
@@ -163,30 +161,34 @@ export class SimBackend {
 
   async openVault({ ownerPubkey, escapeHeight, expectedSats }) {
     const c = this.w.near.view(A.ripcord, 'get_config');
-    return this.send(
+    const r = this.send(
       A.ripcord,
       'open_vault',
       { owner_pubkey: ownerPubkey, escape_height: escapeHeight, expected_sats: String(expectedSats) },
       BigInt(c.vault_fee) + BigInt(c.vault_storage),
     );
+    const id = r.events?.find((e) => e.event === 'vault_opened')?.data[0].vault_id;
+    return this.note(r, 'Opened a vault', { vault: id === undefined ? undefined : String(id) });
   }
 
   /** The simulated wallet pays the vault, and three blocks confirm it. */
   async sendDeposit(vault, sats) {
     const coin = this.w.bitcoin.fund(hexToBytes(vault.script_pubkey), sats);
     this.w.bitcoin.mine(3);
-    this.coins = { ...this.coins, [vault.id]: coin };
+    this.coins[vault.id] = coin;
+    this.note({ ok: true }, `Sent ${(sats / 1e8).toFixed(4)} BTC to the vault on Bitcoin`, { vault: vault.id });
     return coin;
   }
 
   async proveDeposit(vault) {
-    const coin = this.coins?.[vault.id];
+    const coin = this.coins[vault.id];
     if (!coin) return { ok: false, error: 'nothing has paid this vault yet' };
     const { raw_tx, proof } = this.w.bitcoin.proofFor(coin.txid);
-    return this.send(A.ripcord, 'prove_deposit', { vault_id: vault.id, raw_tx, vout: coin.vout, proof });
+    const r = this.send(A.ripcord, 'prove_deposit', { vault_id: vault.id, raw_tx, vout: coin.vout, proof });
+    return this.note(r, 'Proved the deposit through the Bitcoin light client', { vault: vault.id });
   }
 
-  borrow({ vaultId, offerId, principal, auctionOpenPerBtc, payoutTo }) {
+  borrowCall({ vaultId, offerId, principal, auctionOpenPerBtc, payoutTo }) {
     return this.send(
       A.ripcord,
       'borrow',
@@ -201,47 +203,114 @@ export class SimBackend {
     );
   }
 
+  borrow(args) {
+    return this.note(this.borrowCall(args), 'Borrowed, paid to this NEAR account', { vault: args.vaultId, amount: args.principal.toString() });
+  }
+
+  /** Borrows straight into a NEAR Intents deposit address, so the dollars land on `route`. */
+  async sendTo({ vaultId, offerId, principal, auctionOpenPerBtc, route, recipient }) {
+    if (this.killed.near) return DOWN;
+    if (this.killed.oneclick) return { ok: false, error: '1Click is switched off in this simulation. Borrow to your NEAR account instead.' };
+    const q = await deliveryQuote({ route, microUsdc: principal, recipient, refundTo: this.role }, this.oneClick);
+    const depositAddress = q.quote.depositAddress;
+    const registered = this.send(A.usdc, 'storage_deposit', { account_id: depositAddress, registration_only: true }, REGISTRATION);
+    if (!registered.ok) return registered;
+    const r = this.borrowCall({ vaultId, offerId, principal, auctionOpenPerBtc, payoutTo: depositAddress });
+    if (!r.ok) return r;
+    const transfer = {
+      depositAddress,
+      direction: 'out',
+      routeId: route.id,
+      chain: route.label,
+      recipient,
+      refundTo: this.role,
+      vaultId,
+      amountIn: q.quote.amountIn,
+      amountOut: q.quote.amountOut,
+      deadline: q.quote.deadline,
+      simulated: true,
+    };
+    saveTransfer(this.kind, transfer);
+    this.note(r, `Borrowed, sent to ${route.label} through NEAR Intents`, { vault: vaultId, amount: principal.toString() });
+    return { ...r, transfer };
+  }
+
+  /** A deposit address on `route` that brings exactly `microUsdc` to this NEAR account. */
+  async receiveFrom({ vaultId, route, microUsdc, refundTo }) {
+    if (this.killed.oneclick) return { ok: false, error: '1Click is switched off in this simulation. Repay directly on NEAR.' };
+    const q = await inboundQuote({ route, microUsdc, recipient: this.role, refundTo }, this.oneClick);
+    const transfer = {
+      depositAddress: q.quote.depositAddress,
+      direction: 'in',
+      routeId: route.id,
+      chain: route.label,
+      recipient: this.role,
+      refundTo,
+      vaultId,
+      amountIn: q.quote.amountIn,
+      amountOut: q.quote.amountOut,
+      deadline: q.quote.deadline,
+      simulated: true,
+    };
+    saveTransfer(this.kind, transfer);
+    this.note({ ok: true }, `Asked NEAR Intents for a deposit address on ${route.label}`, { vault: vaultId, amount: microUsdc.toString() });
+    return { ok: true, transfer };
+  }
+
+  /** What the user's own wallet on the other chain would do. */
+  payFromOtherChain(depositAddress) {
+    this.intents.payFromOtherChain(depositAddress);
+    return { ok: true };
+  }
+
+  transferStatus(transfer) {
+    return transferStatus(transfer.depositAddress, this.oneClick);
+  }
+
+  setIntentsOutcome(outcome) {
+    this.intents.state.outcome = outcome;
+  }
+
   repay(vault) {
-    return this.tokenCall(this.role, BigInt(vault.loan.debt), { repay: { vault_id: vault.id } });
+    const r = this.tokenCall(this.role, BigInt(vault.loan.debt), { repay: { vault_id: vault.id } });
+    return this.note(r, 'Repaid the loan', { vault: vault.id, amount: vault.loan.debt });
   }
 
   release(vaultId, destination) {
-    return this.send(A.ripcord, 'release', { vault_id: vaultId, destination }, 1n);
+    return this.note(this.send(A.ripcord, 'release', { vault_id: vaultId, destination }, 1n), 'Released the Bitcoin', { vault: vaultId });
   }
 
   requestSignature(vaultId, feeSats) {
-    return this.send(A.ripcord, 'request_signature', { vault_id: vaultId, fee_sats: String(feeSats) }, 1n);
+    const r = this.send(A.ripcord, 'request_signature', { vault_id: vaultId, fee_sats: String(feeSats) }, 1n);
+    return this.note(r, "NEAR's signers signed the Bitcoin spend", { vault: vaultId });
   }
 
   startAuction(vaultId) {
-    return this.send(A.ripcord, 'start_auction', { vault_id: vaultId });
+    return this.note(this.send(A.ripcord, 'start_auction', { vault_id: vaultId }), 'Started the auction', { vault: vaultId });
   }
 
   bid(vaultId, amount, btcScript) {
-    return this.tokenCall(this.role, amount, { bid: { vault_id: vaultId, btc_script: btcScript } });
+    const r = this.tokenCall(this.role, amount, { bid: { vault_id: vaultId, btc_script: btcScript } });
+    return this.note(r, 'Bought the coins at auction', { vault: vaultId, amount: amount.toString() });
   }
 
   claim(vaultId) {
-    return this.send(A.ripcord, 'claim_collateral', { vault_id: vaultId });
+    return this.note(this.send(A.ripcord, 'claim_collateral', { vault_id: vaultId }), 'The coins went to the lender', { vault: vaultId });
   }
 
   makeOffer({ amount, microUsdcPerBtc, aprBps, termBlocks, btcScript }) {
-    return this.tokenCall(this.role, amount, {
-      offer: {
-        micro_usdc_per_btc: microUsdcPerBtc.toString(),
-        apr_bps: aprBps,
-        term_blocks: termBlocks,
-        btc_script: btcScript,
-      },
+    const r = this.tokenCall(this.role, amount, {
+      offer: { micro_usdc_per_btc: microUsdcPerBtc.toString(), apr_bps: aprBps, term_blocks: termBlocks, btc_script: btcScript },
     });
+    return this.note(r, 'Made a lending offer', { amount: amount.toString() });
   }
 
   cancelOffer(offerId) {
-    return this.send(A.ripcord, 'cancel_offer', { offer_id: offerId }, 1n);
+    return this.note(this.send(A.ripcord, 'cancel_offer', { offer_id: offerId }, 1n), 'Closed a lending offer');
   }
 
   withdraw() {
-    return this.send(A.ripcord, 'withdraw', {}, 1n);
+    return this.note(this.send(A.ripcord, 'withdraw', {}, 1n), 'Withdrew dollars from the contract');
   }
 
   // ---- Bitcoin ----
@@ -251,6 +320,7 @@ export class SimBackend {
     try {
       const txid = this.w.bitcoin.submit(rawHex);
       this.w.bitcoin.mine(1);
+      this.note({ ok: true }, 'Bitcoin accepted a transaction');
       return { ok: true, txid };
     } catch (e) {
       return { ok: false, error: e.message };
@@ -258,6 +328,10 @@ export class SimBackend {
   }
 
   explorerTx() {
+    return null;
+  }
+
+  btcAddressUrl() {
     return null;
   }
 
