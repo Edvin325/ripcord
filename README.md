@@ -4,6 +4,14 @@
 
 Built at NEAR HACKATHON for the Unstoppable DeFi track (`defi`). Unaudited.
 
+## Watch it
+
+- **Demo, 2:17, with a voice:** [play in the browser](https://edvin325.github.io/ripcord/media/ripcord-demo.mp4) or [the file](media/ripcord-demo.mp4). The real app: open a vault, borrow, survive a 50% crash, switch everything off and get the coins back through Bitcoin alone. It ends on the real Bitcoin testnet spend a NEAR contract signed.
+- **Explainer, 2:15, in plain words:** [play in the browser](https://edvin325.github.io/ripcord/media/ripcord-explained.mp4) or [the file](media/ripcord-explained.mp4). The problem and the fix, with drawings and no technical terms.
+- **Hosted app:** https://edvin325.github.io/ripcord/ runs the real compiled contracts in your browser, with no wallet.
+
+`app/scripts/record-demo.mjs` and `app/scripts/record-explainer.mjs` record both videos from this repository.
+
 ## What this is
 
 A borrower locks native BTC in a Bitcoin address built for that loan. The address is a small Bitcoin script with two ways to spend:
@@ -63,7 +71,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:4173. The Simulator runs the real contracts in your browser tab.
+Open http://localhost:4173, or skip the install and open the hosted copy at https://edvin325.github.io/ripcord/. The Simulator runs the real contracts in your browser tab.
 
 - Click **Try to switch it off**, then **Pull the ripcord**. You see a loan open, a 50% crash change nothing, every dependency switch off, Bitcoin refuse the ticket, then accept it.
 - Click **Borrow**, then **Open vault**, and follow the steps. Pick Base under **Deliver the dollars to** and enter a Base address. You see a live NEAR Intents price. Press **Borrow and send to Base**, and you see the transfer move through 1Click's statuses to **Delivered on Base**, with **Where your money is** saying where the dollars are at each step. Intents has no testnet, so the delivery is simulated and says so. The price is real.
@@ -215,11 +223,14 @@ These use daily average prices, which hide intraday wicks, and past prices do no
 | `tools/intents-payout.mjs` | A real mainnet transfer. Runs only with `--yes` and a human's approval |
 | `tools/escape.mjs` | Signs the owner's exit offline, with no network |
 | `app` | The web app |
+| `app/scripts` | The browser check and the two video recorders |
+| `media` | The demo and explainer videos |
 | `research` | The lender backtest, with its data |
 
 ## Hackathon notes
 
 - **All work is new**, started on 7 Nov 2026, inside the window.
 - **Libraries:** near-sdk, near-contract-standards, near-api-js, @noble/curves, @noble/hashes, bitcoinjs-lib, ecpair and tiny-secp256k1 (tests and the test wallet), preact, @preact/preset-vite, vite, @hot-labs/near-connect, playwright-core (browser check and video). Fonts: Barlow Condensed and IBM Plex through @fontsource, under the SIL Open Font License.
+- **Videos:** recorded from the real app with playwright-core, narrated by the Windows voice Microsoft Heera, and encoded with ffmpeg.
 - **AI tools:** written with Claude Code. The NEAR Intents code follows NEAR's `near-intents` agent skill from github.com/near/agent-skills, read as documentation.
 - **License:** MIT.

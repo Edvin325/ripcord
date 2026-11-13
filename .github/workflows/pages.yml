@@ -28,6 +28,8 @@ jobs:
       - name: Build
         working-directory: app
         run: npm run build
+      - name: Add the videos, so they play in any browser
+        run: cp -r media app/dist/media
       - uses: actions/upload-pages-artifact@v3
         with:
           path: app/dist
